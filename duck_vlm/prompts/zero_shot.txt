@@ -25,6 +25,8 @@ CONTROL RULES:
 - ROLL and DANCE are episodic skills; do not repeat them immediately.
 - STOP holds position for one step. STAND stabilizes the body.
 - DONE only when TASK is visibly complete or the target is already achieved.
+- Use SUBTASK, ROBOT STATE, and AFFORDANCE as trusted progress measurements. When the target is known but not visible or its bearing magnitude exceeds 0.6 rad, keep turning consistently toward the target bearing sign; do not alternate TURN_L and TURN_R.
+- For a distance-and-heading task, make coarse progress while far away, then use shorter corrections when the remaining distance or heading error is small.
 - Avoid oscillating between opposite actions. If the target is not visible, rotate/search instead of moving blindly.
 - The geometric facts in ROBOT STATE and AFFORDANCE come from trusted sensors; do not invent coordinates.
 

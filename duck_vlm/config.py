@@ -22,6 +22,7 @@ class PluginConfig:
     recovery: bool = True
     fall_recovery: bool = True
     human_takeover: bool = True
+    search_align: bool = True
     extra_views: bool = False
 
     def to_dict(self) -> dict[str, bool]:

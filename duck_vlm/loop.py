@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
+import math
 import time
 from typing import Any, Callable
 
@@ -94,6 +95,7 @@ class DuckVlmLoop:
         action_memory = self.plugins.get("action_memory")
         if isinstance(action_memory, ActionMemoryPlugin):
             action_memory.recent.clear()
+        self.plugins.reset()
         self.interpreter.cancel(reset_action=True)
         self._pending = None
         self._pending_observation = None
@@ -211,6 +213,11 @@ class DuckVlmLoop:
                         reply.raw_text = reply.raw_text + f'\n[runtime-recovery:{reply.token}->{recovered}]'
                         reply.token = recovered
                         reply.parse_recovered = True
+                aligned = self.plugins.resolve_token(reply.token, observation, context)
+                if aligned != reply.token:
+                    reply.raw_text = reply.raw_text + f'\n[runtime-search-align:{reply.token}->{aligned}]'
+                    reply.token = aligned
+                    reply.parse_recovered = True
                 self.last_reply = reply
                 self.last_latency_s = reply.latency_s
                 self.last_error = ""
@@ -274,7 +281,8 @@ class DuckVlmLoop:
                       source: str = "vlm", raw: str = "") -> np.ndarray:
         self.last_token = token
         self._before_state = before
-        tick = self.interpreter.start(token, fallen=before.fallen)
+        tick = self.interpreter.start(token, fallen=before.fallen,
+                                      duration_scale=self._duration_scale(token, before))
         self.last_result = tick.note
         self.recorder.record_event({"type": "action_started", "step": self.step_index,
                                     "token": token, "source": source, "raw": raw})
@@ -282,6 +290,35 @@ class DuckVlmLoop:
             self._finish_action(tick, sim_time)
             return np.zeros(3, dtype=np.float32)
         return np.asarray(tick.command, dtype=np.float32)
+
+    def _duration_scale(self, token: str, state: DuckState) -> float:
+        if self.active_task_id == "walk_turn_stop":
+            return self._walk_turn_stop_scale(token, state)
+        # Turns are authoritative now; shorten them for fine alignment so the
+        # controller does not overshoot and oscillate around the target bearing.
+        if token in ("TURN_L", "TURN_R") and state.target_bearing_rad is not None:
+            error_deg = abs(math.degrees(state.target_bearing_rad))
+            if error_deg < 15.0:
+                return 0.45
+            if error_deg < 35.0:
+                return 0.70
+        return 1.0
+
+    def _task_still_pending(self) -> bool:
+        """True when a scene task is active and its truth-based check has not passed."""
+        if self.task_manager is None:
+            return False
+        state = self.task_manager.status()
+        return bool(state.get("active")) and not bool(state.get("success"))
+
+    @staticmethod
+    def _walk_turn_stop_scale(token: str, state: DuckState) -> float:
+        if token == "TURN_R":
+            distance = math.hypot(0.8 - state.x, -0.1 - state.y)
+            yaw_error = (math.radians(-90.0) - state.heading_rad + math.pi) % (2 * math.pi) - math.pi
+            if distance <= 0.35:
+                return 0.35 if abs(math.degrees(yaw_error)) < 45.0 else 0.55
+        return 1.0
 
     def _finish_action(self, tick: ExecutionTick, sim_time: float) -> None:
         after = self.state_provider(self.target, sim_time)
@@ -299,6 +336,20 @@ class DuckVlmLoop:
         self.last_token = result.token
         self.step_index += 1
         if result.token == "DONE":
+            if self._task_still_pending():
+                # The model claimed completion, but the scene evaluator (MuJoCo
+                # truth) disagrees. Ignore the claim and keep working instead of
+                # forfeiting the remaining budget.
+                self.last_result = "done_ignored_premature"
+                self.recorder.record_event({"type": "done_ignored", "step": self.step_index,
+                                            "reason": "task evaluator not satisfied"})
+                if self.step_index >= self.loop_config.max_steps:
+                    self.running = False
+                    self.last_result = "max_steps"
+                    self.recorder.record_event({"type": "episode_done", "step": self.step_index,
+                                                "reason": "max_steps"})
+                    self.recorder.finish(self.status())
+                return
             self.running = False
             self.last_result = "done"
             self.recorder.record_event({"type": "episode_done", "step": self.step_index})

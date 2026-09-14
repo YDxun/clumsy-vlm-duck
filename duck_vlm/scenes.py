@@ -88,6 +88,10 @@ class SceneSpec:
             body = obj.get("body") or obj.get("id")
             for name in [obj.get("id"), body, *(obj.get("semantic_labels") or [])]:
                 entries.append((_norm(name), body))
+        for person in self.metadata.get("people") or []:
+            body = person.get("body") or person.get("id")
+            for name in [person.get("id"), body, *(person.get("semantic_labels") or [])]:
+                entries.append((_norm(name), body))
         for zone in self.metadata.get("zones") or []:
             body = zone.get("body") or zone.get("id")
             for name in [zone.get("id"), body, *(zone.get("semantic_labels") or [])]:

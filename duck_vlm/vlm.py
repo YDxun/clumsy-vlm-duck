@@ -49,6 +49,7 @@ def render_prompt(observation: VlmObservation, allowed: Sequence[str], mode: str
     else:
         values = {
             "{task}": observation.task,
+            "{task_id}": observation.task_id or "(none)",
             "{target}": observation.target,
             "{state}": observation.state.prompt_text(),
             "{subgoal}": observation.subgoal or "(none)",

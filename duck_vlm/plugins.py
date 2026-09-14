@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter, deque
 from dataclasses import dataclass, field
 import io
+import math
 from typing import Any, Deque
 
 from .config import PluginConfig
@@ -26,6 +27,12 @@ class DuckPlugin:
         return observation
 
     def after_step(self, token: str, before: DuckState, after: DuckState, ok: bool, context: dict[str, Any]) -> None:
+        return None
+
+    def resolve_token(self, token: str, observation: VlmObservation, context: dict[str, Any]) -> str:
+        return token
+
+    def reset(self) -> None:
         return None
 
     def status(self) -> dict[str, Any]:
@@ -85,6 +92,29 @@ class SubgoalPlugin(DuckPlugin):
             return observation
         task = (observation.task or "").lower()
         state = observation.state
+        task_id = observation.task_id or ""
+        if task_id == "walk_turn_stop":
+            import math as _math
+            distance = _math.hypot(0.8 - state.x, -0.1 - state.y)
+            yaw_error = (_math.radians(-90.0) - state.heading_rad + _math.pi) % (2 * _math.pi) - _math.pi
+            if distance > 0.35:
+                self.subgoal = (f"Move into the target region near (0.8,-0.1). Current distance is {distance:.2f} m. Walk forward while maintaining heading.")
+            elif abs(_math.degrees(yaw_error)) > 20.0:
+                direction = "right" if yaw_error < 0 else "left"
+                self.subgoal = (f"You are inside the target region. Turn {direction} toward -90 deg. Current heading is {_math.degrees(state.heading_rad):.0f} deg, error is {_math.degrees(yaw_error):.0f} deg.")
+            else:
+                self.subgoal = "Target position and heading are satisfied. Output STOP and remain stable."
+            observation.subgoal = self.subgoal
+            return observation
+        if task_id in ("walk_to_ball", "come_to_owner", "go_to_beacon", "rough_ground_walk"):
+            if state.target_range_m is None:
+                self.subgoal = "Target is not visible. Turn/search until it enters the camera."
+            elif state.target_range_m > 0.4:
+                self.subgoal = f"Approach target; current range is {state.target_range_m:.2f} m."
+            else:
+                self.subgoal = f"Target is close ({state.target_range_m:.2f} m). Slow down and stop."
+            observation.subgoal = self.subgoal
+            return observation
         if any(word in task for word in ("踢", "kick", "球", "ball")):
             if state.target_range_m is None or not state.target_visible:
                 self.subgoal = "Find the ball in the head camera and turn toward it."
@@ -105,6 +135,71 @@ class SubgoalPlugin(DuckPlugin):
         observation.subgoal = self.subgoal
         return observation
 
+
+class SearchAlignPlugin(DuckPlugin):
+    """Keep the duck converging on the target instead of spinning in place.
+
+    Three failure modes are covered:
+
+    * the target is essentially straight ahead but has slipped out of the
+      narrow head camera, so a turn would drive it further away -> walk
+      forward instead of turning on a noisy near-zero bearing sign;
+    * the target sits near +/-180 deg, where the bearing sign flips with sensor
+      noise -> commit to the previous turn direction instead of oscillating;
+    * the target is clearly off-axis -> make any turn the model picked point
+      the correct way, so it cannot alternate TURN_L/TURN_R.
+    """
+
+    name = "search_align"
+    ALIGN_RAD = 0.55          # "straight ahead" band, ~31 deg
+    SEEN_HOLD_STEPS = 20      # once sighted, keep trusting "target ahead" for a while
+
+    def __init__(self, enabled: bool = True):
+        super().__init__(enabled)
+        self._turn_dir: str | None = None
+        self._seen_steps = 0
+
+    @staticmethod
+    def _near_opposite(bearing: float) -> bool:
+        return abs(bearing) > math.radians(150.0)
+
+    def reset(self) -> None:
+        self._turn_dir = None
+        self._seen_steps = 0
+
+    def resolve_token(self, token: str, observation: VlmObservation, context: dict[str, Any]) -> str:
+        if not self.enabled or observation.task_id == "walk_turn_stop":
+            return token
+        state = observation.state
+        if state.target_visible:
+            self._seen_steps = self.SEEN_HOLD_STEPS
+        elif self._seen_steps > 0:
+            self._seen_steps -= 1
+        bearing = state.target_bearing_rad
+        if bearing is None:
+            return token
+        task_id = observation.task_id or ""
+        angle = abs(bearing)
+        rng = state.target_range_m
+        if angle < self.ALIGN_RAD:
+            self._turn_dir = None
+            # Target is ahead (and we recently saw it): close the gap, do not spin.
+            if (self._seen_steps > 0 and token in ("TURN_L", "TURN_R")
+                    and (rng is None or rng > 0.45)
+                    and "orbit" not in task_id and "corridor" not in task_id):
+                return "FWD"
+            return token
+        if self._near_opposite(bearing) and self._turn_dir in ("TURN_L", "TURN_R"):
+            direction = self._turn_dir
+        else:
+            direction = "TURN_L" if bearing > 0 else "TURN_R"
+        self._turn_dir = direction
+        if token in ("TURN_L", "TURN_R", "STOP", "STAND"):
+            return direction
+        return token
+
+    def status(self) -> dict[str, Any]:
+        return {"enabled": self.enabled, "turn_dir": self._turn_dir}
 
 class AffordancePlugin(DuckPlugin):
     name = "affordance"
@@ -202,7 +297,21 @@ class RecoveryPlugin(DuckPlugin):
                 return 'TURN_R'
             if token in ('FWD', 'BACK', 'STRAFE_L', 'STRAFE_R'):
                 return 'TURN_L'
+        if token in ('TURN_L', 'TURN_R') and self._alternating_turns(recent):
+            state = observation.state
+            bearing = state.target_bearing_rad
+            if bearing is not None and abs(bearing) > 0.25:
+                return 'TURN_L' if bearing > 0 else 'TURN_R'
+            if state.target_visible:
+                return 'FWD'
         return token
+
+    @staticmethod
+    def _alternating_turns(recent: list[str]) -> bool:
+        if len(recent) < 4:
+            return False
+        w = list(recent[:4])
+        return set(w) == {'TURN_L', 'TURN_R'} and w[0] == w[2] and w[1] == w[3] and w[0] != w[1]
 
     def status(self) -> dict[str, Any]:
         return {"enabled": self.enabled, "no_progress_count": self.no_progress_count}
@@ -241,6 +350,7 @@ class PluginSuite:
             SubgoalPlugin(cfg.subgoal),
             AffordancePlugin(cfg.affordance),
             RecoveryPlugin(cfg.recovery),
+            SearchAlignPlugin(cfg.search_align),
             HumanTakeoverPlugin(cfg.human_takeover),
         ]
         return cls(cfg, plugins, {plugin.name: plugin for plugin in plugins})
@@ -252,6 +362,15 @@ class PluginSuite:
         for plugin in self.plugins:
             observation = plugin.before_decision(observation, context)
         return observation
+
+    def resolve_token(self, token: str, observation: VlmObservation, context: dict[str, Any]) -> str:
+        for plugin in self.plugins:
+            token = plugin.resolve_token(token, observation, context)
+        return token
+
+    def reset(self) -> None:
+        for plugin in self.plugins:
+            plugin.reset()
 
     def after_step(self, token: str, before: DuckState, after: DuckState, ok: bool, context: dict[str, Any]) -> None:
         for plugin in self.plugins:

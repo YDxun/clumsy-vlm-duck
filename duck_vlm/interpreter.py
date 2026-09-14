@@ -51,7 +51,7 @@ class DuckActionInterpreter:
             if spec.policy is None or spec.policy in available
         )
 
-    def start(self, token: str, fallen: bool = False) -> ExecutionTick:
+    def start(self, token: str, fallen: bool = False, duration_scale: float = 1.0) -> ExecutionTick:
         token = token.upper().strip()
         spec = ACTION_SPECS.get(token)
         if spec is None:
@@ -75,7 +75,7 @@ class DuckActionInterpreter:
                 self.token = None
                 return ExecutionTick(np.zeros(3, dtype=np.float32), True, note, token)
             return ExecutionTick(np.zeros(3, dtype=np.float32), False, "skill requested", token)
-        self._duration = float(spec.duration_s)
+        self._duration = max(0.10, float(spec.duration_s) * max(0.1, float(duration_scale)))
         self._command = np.asarray(spec.command, dtype=np.float32).copy()
         return ExecutionTick(self._command.copy(), False, "motion started", token)
 
