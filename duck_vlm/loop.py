@@ -192,7 +192,8 @@ class DuckVlmLoop:
                 self.last_latency_s = reply.latency_s
                 self.last_error = ""
                 record = DecisionRecord(
-                    step_index=self.step_index, token=reply.token, source="vlm",
+                    step_index=self.step_index, token=reply.token,
+                    source=("dry_run" if reply.provider == "dry_run" else "vlm"),
                     raw_response=reply.raw_text, provider=reply.provider, model=reply.model,
                     latency_s=reply.latency_s, parse_recovered=reply.parse_recovered,
                     note="vlm_decision",
