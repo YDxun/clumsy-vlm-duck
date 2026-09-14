@@ -1,14 +1,20 @@
-﻿"""GUMI-style episode recording and LLaMA-Factory export."""
+"""GUMI-style episode recording and LLaMA-Factory export."""
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+import io
 import json
 from pathlib import Path
 import re
 from typing import Any
 
 from .types import DecisionRecord, VlmObservation
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - imaging is optional
+    Image = None
 
 
 def _slug(text: str, limit: int = 36) -> str:
@@ -60,11 +66,55 @@ class EpisodeRecorder:
         return self.session_dir, self.events_path
 
     def save_image(self, image_jpeg: bytes, step_index: int) -> str:
-        session_dir, _ = self._require()
-        assert self.frames_dir is not None
+        # Recording is optional: episodes started with record=False must still run.
+        if not self.active or self.session_dir is None or self.frames_dir is None:
+            return ""
         path = self.frames_dir / f"{step_index:05d}.jpg"
         path.write_bytes(image_jpeg)
-        return str(path.relative_to(session_dir))
+        return str(path.relative_to(self.session_dir))
+
+    def save_extra_views(self, head_jpeg: bytes, extra_views: Any,
+                         step_index: int) -> dict[str, str]:
+        """Persist secondary views plus a side-by-side duck-cam/scene composite.
+
+        Returns a mapping of view name -> path relative to the session dir.
+        """
+        if not self.active or self.session_dir is None or not extra_views:
+            return {}
+        session_dir = self.session_dir
+        main_dir = session_dir / "frames_main"
+        dual_dir = session_dir / "frames_dual"
+        try:
+            main_dir.mkdir(exist_ok=True)
+            dual_dir.mkdir(exist_ok=True)
+        except Exception:
+            return {}
+        out: dict[str, str] = {}
+        tiles: list[bytes] = []
+        for name, data in extra_views:
+            if not data:
+                continue
+            path = main_dir / f"{step_index:05d}.jpg"
+            try:
+                path.write_bytes(bytes(data))
+                out[str(name)] = str(path.relative_to(session_dir))
+                tiles.append(bytes(data))
+            except Exception:
+                continue
+        if Image is not None and head_jpeg and tiles:
+            try:
+                head = Image.open(io.BytesIO(bytes(head_jpeg))).convert("RGB")
+                canvas = Image.new("RGB", (head.width * (1 + len(tiles)), head.height), (0, 0, 0))
+                canvas.paste(head, (0, 0))
+                for i, data in enumerate(tiles, start=1):
+                    tile = Image.open(io.BytesIO(data)).convert("RGB")
+                    canvas.paste(tile.resize((head.width, head.height)), (i * head.width, 0))
+                dual = dual_dir / f"{step_index:05d}.jpg"
+                canvas.save(dual, format="JPEG", quality=85)
+                out["dual"] = str(dual.relative_to(session_dir))
+            except Exception:
+                pass
+        return out
 
     def record_event(self, event: dict[str, Any]) -> None:
         if not self.active or self.events_path is None:
@@ -100,6 +150,11 @@ class EpisodeRecorder:
             "recovery": observation.recovery_hint,
             "plugins": dict(observation.plugin_state),
         }
+        views = self.save_extra_views(observation.image_jpeg, observation.extra_views,
+                                      record.step_index)
+        if views:
+            row["extra_view_files"] = views
+            row["image_dual"] = views.get("dual", "")
         with self.transitions_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(_jsonable(row), ensure_ascii=False) + "\n")
 

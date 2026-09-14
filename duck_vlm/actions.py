@@ -1,4 +1,4 @@
-﻿"""Discrete action vocabulary shared by prompts, interpreters, GUI and training.
+"""Discrete action vocabulary shared by prompts, interpreters, GUI and training.
 
 The VLM never emits velocities or joint targets. It emits exactly one token
 from this module; :mod:`duck_vlm.interpreter` grounds that token in the duck's
@@ -22,6 +22,8 @@ class ActionSpec:
     policy: str | None = None
     request: str | None = None
     terminal: bool = False
+    # Joint deltas applied on top of the nominal pose while a head action runs.
+    head_delta: tuple[tuple[str, float], ...] | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -36,6 +38,11 @@ ACTION_SPECS: dict[str, ActionSpec] = {
     "TURN_R": ActionSpec("TURN_R", "Turn right in place", "motion", 0.55, (0.0, 0.0, -1.5)),
     "STOP": ActionSpec("STOP", "Stop and stand for one short interval", "control", 0.30),
     "STAND": ActionSpec("STAND", "Hold a stable standing pose", "control", 0.70),
+    # Head actions: the duck keeps standing, but the head joints are driven to a
+    # fixed offset so the duck-cam can actually look at the ground in front of it.
+    # head_pitch increases = look down, neck_pitch increases = look up (verified FK).
+    "LOOK_DOWN": ActionSpec("LOOK_DOWN", "Keep standing and pitch the head down to see the ground just in front of the duck", "head", 1.20, head_delta=(("neck_pitch", 0.0), ("head_pitch", 0.60), ("head_yaw", 0.0), ("head_roll", 0.0))),
+    "HEAD_CENTER": ActionSpec("HEAD_CENTER", "Return the head to the neutral forward pose so the duck looks ahead again", "head", 0.90, head_delta=(("neck_pitch", 0.0), ("head_pitch", 0.0), ("head_yaw", 0.0), ("head_roll", 0.0))),
     "KICK_L": ActionSpec("KICK_L", "Run the left-foot ball-kick policy", "skill", 0.0, policy="ball_kick_left", request="kickL"),
     "KICK_R": ActionSpec("KICK_R", "Run the right-foot ball-kick policy", "skill", 0.0, policy="ball_kick_right", request="kickR"),
     "ROLL": ActionSpec("ROLL", "Run the roulade forward-roll policy", "skill", 0.0, policy="roulade"),
@@ -76,6 +83,14 @@ _ALIASES: dict[str, str] = {
     "WAIT": "STOP",
     "停止": "STOP",
     "站立": "STAND",
+    "LOW_HEAD": "LOOK_DOWN",
+    "LOOK_DOWN": "LOOK_DOWN",
+    "低头": "LOOK_DOWN",
+    "看地面": "LOOK_DOWN",
+    "HEAD_UP": "HEAD_CENTER",
+    "RAISE_HEAD": "HEAD_CENTER",
+    "抬头": "HEAD_CENTER",
+    "头回正": "HEAD_CENTER",
     "KICK_LEFT": "KICK_L",
     "KICKLEFT": "KICK_L",
     "左脚踢": "KICK_L",

@@ -1,4 +1,4 @@
-﻿"""Ablation-friendly plugins mounted around the duck perceive-reason-act loop."""
+"""Ablation-friendly plugins mounted around the duck perceive-reason-act loop."""
 from __future__ import annotations
 
 from collections import Counter, deque
@@ -82,10 +82,23 @@ class ActionMemoryPlugin(DuckPlugin):
 
 class SubgoalPlugin(DuckPlugin):
     name = "subgoal"
+    NEAR_SEEN_M = 0.60   # only suggest LOOK_DOWN if it was seen this close
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled)
         self.subgoal = ""
+        self._last_seen_range: float | None = None
+
+    def reset(self) -> None:
+        self.subgoal = ""
+        self._last_seen_range = None
+
+    def _seen_near(self, state: DuckState) -> bool:
+        """True when the target was last seen close enough to slip under the camera."""
+        if state.target_visible and state.target_range_m is not None:
+            self._last_seen_range = float(state.target_range_m)
+        return (self._last_seen_range is not None
+                and self._last_seen_range <= self.NEAR_SEEN_M)
 
     def before_decision(self, observation: VlmObservation, context: dict[str, Any]) -> VlmObservation:
         if not self.enabled:
@@ -108,16 +121,29 @@ class SubgoalPlugin(DuckPlugin):
             return observation
         if task_id in ("walk_to_ball", "come_to_owner", "go_to_beacon", "rough_ground_walk"):
             if state.target_range_m is None:
-                self.subgoal = "Target is not visible. Turn/search until it enters the camera."
+                tail = ("It was last seen close, so it may be under the chin: LOOK_DOWN."
+                        if self._seen_near(state) else
+                        "It was not seen nearby, so do not stare at the floor: explore instead.")
+                self.subgoal = ("Target is not on the duck-cam, so its distance is unknown. Scan "
+                                "with TURN_L/TURN_R, then FWD to a new vantage point (through a "
+                                f"doorway or along open floor) if scanning does not reveal it. {tail}")
             elif state.target_range_m > 0.4:
                 self.subgoal = f"Approach target; current range is {state.target_range_m:.2f} m."
+            elif state.target_range_m > 0.18:
+                self.subgoal = (f"Target is close ({state.target_range_m:.2f} m) and can drop below "
+                                f"the camera. LOOK_DOWN to keep it in view, then finish.")
             else:
-                self.subgoal = f"Target is close ({state.target_range_m:.2f} m). Slow down and stop."
+                self.subgoal = f"Target is very close ({state.target_range_m:.2f} m). Slow down and stop."
             observation.subgoal = self.subgoal
             return observation
         if any(word in task for word in ("踢", "kick", "球", "ball")):
             if state.target_range_m is None or not state.target_visible:
-                self.subgoal = "Find the ball in the head camera and turn toward it."
+                tail = ("It was last seen close, so it has likely dropped below the camera: "
+                        "LOOK_DOWN to see the ground."
+                        if self._seen_near(state) else
+                        "It was not seen nearby: scan and explore rather than staring at the floor.")
+                self.subgoal = ("Ball is not on the duck-cam. Scan with TURN_L/TURN_R, then FWD to a "
+                                f"new vantage point if scanning does not find it. {tail}")
             elif state.target_range_m > 0.35:
                 self.subgoal = "Approach the ball until it is close and centered."
             elif abs(state.target_bearing_rad or 0.0) > 0.20:
@@ -139,67 +165,67 @@ class SubgoalPlugin(DuckPlugin):
 class SearchAlignPlugin(DuckPlugin):
     """Keep the duck converging on the target instead of spinning in place.
 
-    Three failure modes are covered:
+    The state sensor only publishes range/bearing while the duck-cam actually
+    holds the target, so this plugin never pretends to know where an unseen
+    target is. It covers three cases:
 
-    * the target is essentially straight ahead but has slipped out of the
-      narrow head camera, so a turn would drive it further away -> walk
-      forward instead of turning on a noisy near-zero bearing sign;
-    * the target sits near +/-180 deg, where the bearing sign flips with sensor
-      noise -> commit to the previous turn direction instead of oscillating;
-    * the target is clearly off-axis -> make any turn the model picked point
-      the correct way, so it cannot alternate TURN_L/TURN_R.
+    * target on camera and far -> a turn is wasted motion, walk forward instead;
+    * target on camera and close -> align by turning toward the published bearing;
+    * target off camera -> sweep consistently in the direction it was last seen,
+      which needs no privileged information and stops the L/R oscillation.
     """
 
     name = "search_align"
     ALIGN_RAD = 0.55          # "straight ahead" band, ~31 deg
-    SEEN_HOLD_STEPS = 20      # once sighted, keep trusting "target ahead" for a while
+    SEEN_HOLD_STEPS = 20      # retained for compatibility with recorded runs
+    MAX_SWEEP_STEPS = 6       # bounded sweep before handing control back
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled)
         self._turn_dir: str | None = None
-        self._seen_steps = 0
-
-    @staticmethod
-    def _near_opposite(bearing: float) -> bool:
-        return abs(bearing) > math.radians(150.0)
+        self._search_dir: str | None = None
+        self._blind_steps = 0
 
     def reset(self) -> None:
         self._turn_dir = None
-        self._seen_steps = 0
+        self._search_dir = None
+        self._blind_steps = 0
 
     def resolve_token(self, token: str, observation: VlmObservation, context: dict[str, Any]) -> str:
         if not self.enabled or observation.task_id == "walk_turn_stop":
             return token
         state = observation.state
-        if state.target_visible:
-            self._seen_steps = self.SEEN_HOLD_STEPS
-        elif self._seen_steps > 0:
-            self._seen_steps -= 1
         bearing = state.target_bearing_rad
-        if bearing is None:
-            return token
         task_id = observation.task_id or ""
-        angle = abs(bearing)
-        rng = state.target_range_m
-        if angle < self.ALIGN_RAD:
+        if bearing is None:
+            # Nothing on camera. Sweep one way so the duck scans instead of
+            # flipping left/right, but only for a bounded number of steps:
+            # after that the model must be free to explore (e.g. walk through a
+            # doorway) rather than spin forever on the spot.
             self._turn_dir = None
-            # Target is ahead (and we recently saw it): close the gap, do not spin.
-            if (self._seen_steps > 0 and token in ("TURN_L", "TURN_R")
-                    and (rng is None or rng > 0.45)
-                    and "orbit" not in task_id and "corridor" not in task_id):
-                return "FWD"
+            self._blind_steps += 1
+            if token in ("TURN_L", "TURN_R"):
+                if self._blind_steps > self.MAX_SWEEP_STEPS:
+                    return token
+                if self._search_dir is None:
+                    self._search_dir = "TURN_R"
+                return self._search_dir
             return token
-        if self._near_opposite(bearing) and self._turn_dir in ("TURN_L", "TURN_R"):
-            direction = self._turn_dir
-        else:
+        self._blind_steps = 0
+        # Remember which side the target was last on so the sweep continues that way.
+        self._search_dir = "TURN_L" if bearing > 0 else "TURN_R"
+        rng = state.target_range_m
+        if token in ("TURN_L", "TURN_R"):
+            if (rng is None or rng > 0.45) and "orbit" not in task_id and "corridor" not in task_id:
+                return "FWD"   # already facing it: closing the gap beats turning
             direction = "TURN_L" if bearing > 0 else "TURN_R"
-        self._turn_dir = direction
-        if token in ("TURN_L", "TURN_R", "STOP", "STAND"):
+            self._turn_dir = direction
             return direction
         return token
 
     def status(self) -> dict[str, Any]:
-        return {"enabled": self.enabled, "turn_dir": self._turn_dir}
+        return {"enabled": self.enabled, "turn_dir": self._turn_dir,
+                "search_dir": self._search_dir}
 
 class AffordancePlugin(DuckPlugin):
     name = "affordance"

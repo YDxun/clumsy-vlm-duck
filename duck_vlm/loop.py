@@ -1,4 +1,4 @@
-﻿"""Non-blocking perceive -> VLM -> one discrete action -> repeat controller."""
+"""Non-blocking perceive -> VLM -> one discrete action -> repeat controller."""
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -27,12 +27,16 @@ class DuckVlmLoop:
 
     def __init__(self, *, vlm: VlmDecisionClient | None = None, state_provider: StateProvider,
                  image_provider: ImageProvider, kick: Any, policies: dict[str, Any] | None = None,
+                 extra_image_provider: ImageProvider | None = None,
                  reset_callback: Callable[[], None] | None = None,
                  loop_config: LoopConfig | None = None, vlm_config: VLMConfig | None = None,
                  task_manager: TaskManager | None = None):
         self.vlm = vlm or VlmDecisionClient()
         self.state_provider = state_provider
         self.image_provider = image_provider
+        # Optional second camera (third-person/scene view) kept only for the demo
+        # recording; it is never fed to the VLM prompt.
+        self.extra_image_provider = extra_image_provider
         self.kick = kick
         self.policies = policies or {}
         self.reset_callback = reset_callback or (lambda: None)
@@ -62,6 +66,10 @@ class DuckVlmLoop:
         self._pending_context: dict[str, Any] = {}
         self._before_state: DuckState | None = None
         self._result_history: list[ActionResult] = []
+
+    def head_override(self) -> dict[str, float] | None:
+        """Latched head joint offsets the sim should force onto the duck."""
+        return self.interpreter.head_targets()
 
     def set_config(self, values: dict[str, Any] | None = None) -> dict[str, Any]:
         values = values or {}
@@ -259,6 +267,13 @@ class DuckVlmLoop:
         image = self.image_provider() or b""
         observation = VlmObservation(task=self.task, task_id=self.active_task_id, target=self.target, image_jpeg=image,
                                      state=state, step_index=self.step_index, recent_actions=[])
+        if self.extra_image_provider is not None:
+            try:
+                extra = self.extra_image_provider() or b""
+            except Exception:
+                extra = b""
+            if extra:
+                observation.extra_views = [("scene", extra)]
         context = {"action_token": self.last_token, "last_result": self.last_result,
                    "allowed_tokens": available_tokens(self.policies)}
         observation = self.plugins.before_decision(observation, context)

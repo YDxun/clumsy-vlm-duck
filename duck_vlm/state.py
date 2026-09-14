@@ -85,13 +85,56 @@ class DuckStateSensor:
             return state
         target_world = np.asarray(d.xpos[target_id], dtype=np.float64).copy()
         target_local = _quat_rotate_inverse(quat, target_world - trunk)
-        state.target_world_xyz = tuple(float(x) for x in target_world[:3])
-        state.target_range_m = float(np.linalg.norm(target_local))
-        state.target_bearing_rad = float(math.atan2(target_local[1], target_local[0]))
-        state.target_elevation_rad = float(math.atan2(target_local[2], math.hypot(target_local[0], target_local[1])))
-        state.target_uv = self._project_to_headcam(target_world)
-        state.target_visible = bool(state.target_uv is not None and target_local[0] > 0.03)
+        in_front = bool(target_local[0] > 0.03)
+        uv = self._project_to_headcam(target_world) if in_front else None
+        if uv is not None and self._is_occluded(target_world, target_id):
+            uv = None
+        state.target_uv = uv
+        state.target_visible = uv is not None
+        if state.target_visible:
+            # The head camera has the target, so a detector + depth sensor could
+            # report the same range/bearing. This is the only case where the
+            # privileged simulator state is allowed into the prompt.
+            state.target_world_xyz = tuple(float(x) for x in target_world[:3])
+            state.target_range_m = float(np.linalg.norm(target_local))
+            state.target_bearing_rad = float(math.atan2(target_local[1], target_local[0]))
+            state.target_elevation_rad = float(math.atan2(target_local[2], math.hypot(target_local[0], target_local[1])))
+        else:
+            # Occluded or out of frame: there is no depth/range sensor on the duck,
+            # so withhold ground truth instead of leaking the answer.
+            state.target_world_xyz = None
+            state.target_range_m = None
+            state.target_bearing_rad = None
+            state.target_elevation_rad = None
         return state
+    def _is_occluded(self, target_world: np.ndarray, target_id: int) -> bool:
+        """True when scene geometry blocks the head camera's line of sight."""
+        try:
+            import mujoco
+            from duck_play.perception.camera import DuckHeadCam
+            cam = DuckHeadCam(width=320, height=240, pitch_up_deg=-20, fwd_m=0.09, up_m=0.03)
+            origin = np.asarray(cam.pose(self.sim)[0], dtype=np.float64)
+        except Exception:
+            return False
+        direction = np.asarray(target_world, dtype=np.float64) - origin
+        dist = float(np.linalg.norm(direction))
+        if dist < 1e-6:
+            return False
+        direction = direction / dist
+        geomid = np.array([-1], dtype=np.int32)
+        try:
+            hit = float(mujoco.mj_ray(self.sim.model, self.sim.data, origin, direction,
+                                      None, 1, -1, geomid))
+        except Exception:
+            return False
+        if hit < 0.0 or hit >= dist - 0.02:
+            return False
+        if hit < 0.05:
+            return False  # the duck's own head/neck shell
+        gid = int(geomid[0])
+        if gid < 0:
+            return False
+        return int(self.sim.model.geom_bodyid[gid]) != int(target_id)
 
     def _project_to_headcam(self, world_xyz: np.ndarray) -> tuple[float, float] | None:
         try:

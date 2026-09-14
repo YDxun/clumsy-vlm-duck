@@ -1,4 +1,4 @@
-﻿"""Ground discrete duck action tokens into the existing ONNX/LocalKick stack."""
+"""Ground discrete duck action tokens into the existing ONNX/LocalKick stack."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,6 +34,10 @@ class DuckActionInterpreter:
         self._command = np.zeros(3, dtype=np.float32)
         self._started_skill = False
         self._request_ok = False
+        # Latched head-joint offsets (delta from the nominal pose). Kept until
+        # another head action or a cancel, so LOOK_DOWN actually persists long
+        # enough for the next camera frame to show the ground.
+        self._head_delta: dict[str, float] | None = None
 
     def update_policies(self, policies: dict[str, Any]) -> None:
         self.policies = policies or {}
@@ -75,6 +79,12 @@ class DuckActionInterpreter:
                 self.token = None
                 return ExecutionTick(np.zeros(3, dtype=np.float32), True, note, token)
             return ExecutionTick(np.zeros(3, dtype=np.float32), False, "skill requested", token)
+        if spec.kind == "head":
+            self._duration = max(0.10, float(spec.duration_s))
+            self._head_delta = {str(name): float(value)
+                                for name, value in (spec.head_delta or ())}
+            self._command = np.zeros(3, dtype=np.float32)
+            return ExecutionTick(np.zeros(3, dtype=np.float32), False, "head pose requested", token)
         self._duration = max(0.10, float(spec.duration_s) * max(0.1, float(duration_scale)))
         self._command = np.asarray(spec.command, dtype=np.float32).copy()
         return ExecutionTick(self._command.copy(), False, "motion started", token)
@@ -96,6 +106,13 @@ class DuckActionInterpreter:
                 return ExecutionTick(np.zeros(3, dtype=np.float32), True, note, token)
             return ExecutionTick(np.zeros(3, dtype=np.float32), False, "skill:pending", token)
 
+        if spec.kind == "head":
+            self._elapsed += max(0.0, float(dt))
+            if self._elapsed >= self._duration - 1e-9:
+                self.token = None
+                # Deliberately keep self._head_delta latched.
+                return ExecutionTick(np.zeros(3, dtype=np.float32), True, "head pose completed", token)
+            return ExecutionTick(np.zeros(3, dtype=np.float32), False, "head pose running", token)
         self._elapsed += max(0.0, float(dt))
         if self._elapsed >= self._duration - 1e-9:
             self.token = None
@@ -109,9 +126,15 @@ class DuckActionInterpreter:
         self._elapsed = 0.0
         self._started_skill = False
         self._request_ok = False
+        self._head_delta = None
+
+    def head_targets(self) -> dict[str, float] | None:
+        """Latched head joint offsets (deltas from the nominal pose)."""
+        return dict(self._head_delta) if self._head_delta else None
 
     def status(self) -> dict[str, Any]:
         return {
+            "head_delta": dict(self._head_delta) if self._head_delta else None,
             "token": self.token,
             "elapsed_s": round(self._elapsed, 3),
             "duration_s": self._duration,

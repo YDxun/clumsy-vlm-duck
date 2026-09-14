@@ -108,6 +108,14 @@ class LocalSim:
         self.n_joints = self.model.nu
         self.joint_qpos_idx = [int(self.model.jnt_qposadr[self.model.actuator_trnid[i, 0]]) for i in range(self.model.nu)]
         self.joint_qvel_idx = [int(self.model.jnt_dofadr[self.model.actuator_trnid[i, 0]]) for i in range(self.model.nu)]
+        # Duck head joints, addressable directly so head actions can override the
+        # walking policy's head targets without touching locomotion.
+        self.head_ctrl_idx = {}
+        for _i in range(self.model.nu):
+            _jname = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT,
+                                       int(self.model.actuator_trnid[_i, 0]))
+            if _jname in ('neck_pitch', 'head_pitch', 'head_yaw', 'head_roll'):
+                self.head_ctrl_idx[_jname] = _i
         self.default_pose = DEFAULT_POSE[: self.n_joints]
         fj = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "trunk_base_freejoint")
         self.qpos_adr = int(self.model.jnt_qposadr[fj])
@@ -118,6 +126,16 @@ class LocalSim:
 
     def reset(self):
         d = self.data
+        if self.model.nkey > 0:
+            # Scene packs ship an `initial` keyframe holding the scene-correct robot
+            # spawn and object layout. Using it keeps tasks.yaml robot_spawn honest
+            # instead of resetting every scene to the workspace origin.
+            mujoco.mj_resetDataKeyframe(self.model, d, 0)
+            d.qvel[:] = 0
+            d.ctrl[:] = self.default_pose
+            mujoco.mj_forward(self.model, d)
+            self.last_action = np.zeros(self.n_joints, dtype=np.float32)
+            return
         mujoco.mj_resetData(self.model, d)
         d.qpos[self.qpos_adr:self.qpos_adr+7] = [0, 0, 0.125, 1, 0, 0, 0]
         for i, qi in enumerate(self.joint_qpos_idx):
@@ -298,6 +316,13 @@ class Server:
         action = self.policies.infer(policy, obs)
         self.sim.last_action = action.copy()
         d.ctrl[:] = self.sim.default_pose + action
+        if self.vlm is not None and self.control_mode == 'vlm':
+            head_delta = self.vlm.head_override()
+            if head_delta:
+                for _jname, _delta in head_delta.items():
+                    _idx = self.sim.head_ctrl_idx.get(_jname)
+                    if _idx is not None:
+                        d.ctrl[_idx] = float(self.sim.default_pose[_idx]) + float(_delta)
         self.local_policy, self.local_command = policy, cmd.copy()
         for _ in range(DECIMATION):
             mujoco.mj_step(self.sim.model, d)

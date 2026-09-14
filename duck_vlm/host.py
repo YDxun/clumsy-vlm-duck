@@ -1,4 +1,4 @@
-﻿"""Server adapter that mounts DuckVlmLoop into the existing cockpit process."""
+"""Server adapter that mounts DuckVlmLoop into the existing cockpit process."""
 from __future__ import annotations
 
 import time
@@ -27,6 +27,7 @@ class DuckVlmHost:
             vlm=self.vlm,
             state_provider=self._state,
             image_provider=self.capture_headcam,
+            extra_image_provider=self.capture_main,
             kick=server.kick,
             policies=server.policies.sessions,
             reset_callback=server.sim.reset,
@@ -53,6 +54,24 @@ class DuckVlmHost:
         self.server.last_headcam_jpg = jpg
         self.server.last_headcam_at = time.monotonic()
         return jpg
+
+    def capture_main(self) -> bytes:
+        """Third-person scene view, recorded next to the duck-cam for demos."""
+        jpg = bytes(getattr(self.server, "last_main_jpg", b"") or b"")
+        age = time.monotonic() - float(getattr(self.server, "last_main_at", 0.0))
+        if jpg and age <= self.loop.loop_config.stale_image_s:
+            return jpg
+        def _render():
+            self.server._sync_render_state()
+            return self.server.render_main()
+        jpg = self.server.render_exec.submit(_render).result(timeout=5.0)
+        self.server.last_main_jpg = jpg
+        self.server.last_main_at = time.monotonic()
+        return jpg
+
+    def head_override(self) -> dict[str, float] | None:
+        """Latched head pitch/yaw offsets, applied by the sim each control step."""
+        return self.loop.head_override()
 
     def tick(self, sim_time: float) -> np.ndarray:
         return self.loop.tick(sim_time, dt=0.02)
