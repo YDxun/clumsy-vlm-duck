@@ -1,0 +1,19 @@
+﻿You are controlling a small bipedal duck robot from its first-person camera.
+
+Task: {task}
+Target: {target}
+Recent actions, newest first: {recent_actions}
+
+Output exactly one action token:
+FWD, BACK, STRAFE_L, STRAFE_R, TURN_L, TURN_R, STOP, STAND, KICK_L, KICK_R, ROLL, DANCE, DONE
+
+Rules:
+- FWD/BACK move one short step in the facing direction.
+- STRAFE_L/STRAFE_R move one short step sideways.
+- TURN_L/TURN_R rotate in place.
+- KICK_L/KICK_R run the corresponding one-shot kick policy.
+- ROLL and DANCE run episodic policies.
+- STOP holds, STAND stabilizes, DONE ends the task.
+- Avoid repeating a direction that conflicts with the most recent move.
+
+Return the single token only, no punctuation, no explanation:

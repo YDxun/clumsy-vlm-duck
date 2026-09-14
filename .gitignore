@@ -10,3 +10,9 @@ microduck_图纸_标准ZIP版.zip
 鸭子机器人.txt
 个人总结.txt
 _ref/
+_publish/
+
+duck_vlm/runs/
+.tmp_duck_vlm.tgz
+.tmp_server_code_20260914*
+.tmp_ssh_tunnel_*.pid
