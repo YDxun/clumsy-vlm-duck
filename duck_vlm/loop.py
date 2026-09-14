@@ -102,6 +102,9 @@ class DuckVlmLoop:
             task_def = self.task_manager.start(self.task)
             if task_def:
                 self.active_task_id = str(task_def.get("id") or "")
+                instruction = task_def.get("instruction_en") or task_def.get("instruction_zh")
+                if instruction:
+                    self.task = f"{instruction} [task_id={self.active_task_id}]"
         should_record = self.loop_config.auto_start_recording if record is None else bool(record)
         if should_record and not self.recorder.active:
             self.recorder.start(self.task, self.target, self.vlm_config.mode,

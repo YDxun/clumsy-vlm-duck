@@ -42,6 +42,7 @@ def render_prompt(observation: VlmObservation, allowed: Sequence[str], mode: str
         # Preserve the exact trained contract: only task, target, and recent moves.
         values = {
             "{task}": observation.task,
+            "{task_id}": observation.task_id or "(none)",
             "{target}": observation.target,
             "{recent_actions}": ", ".join(observation.recent_actions[:5]) or "(none)",
         }

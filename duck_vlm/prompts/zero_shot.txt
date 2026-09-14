@@ -1,6 +1,7 @@
 ﻿You are controlling a small bipedal duck robot. You see the duck's first-person head camera. A top view may also be provided when enabled. Decide exactly one discrete action token at each step.
 
 TASK: {task}
+TASK ID: {task_id}
 TARGET: {target}
 ROBOT STATE: {state}
 SUBTASK: {subgoal}
