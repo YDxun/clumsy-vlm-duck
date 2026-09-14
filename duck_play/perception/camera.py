@@ -35,13 +35,14 @@ class DuckHeadCam:
         f = fwd * math.cos(self.pitch) + np.array([0.0, 0.0, 1.0]) * math.sin(self.pitch)
         f /= np.linalg.norm(f)
         ref = np.array([0.0, 0.0, 1.0])
-        right = np.cross(ref, f)
+        # MuJoCo camera image right is forward x world-up, not world-up x forward.
+        right = np.cross(f, ref)
         n = np.linalg.norm(right)
         if n < 1e-6:
             right = np.array([1.0, 0.0, 0.0])
         else:
             right /= n
-        up = np.cross(f, right)
+        up = np.cross(right, f)
         return C, f, right, up
 
     def project(self, xyz, sim):

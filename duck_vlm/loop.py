@@ -13,6 +13,7 @@ from .config import LoopConfig, VLMConfig
 from .interpreter import DuckActionInterpreter, ExecutionTick
 from .plugins import ActionMemoryPlugin, HumanTakeoverPlugin, PluginSuite, RecoveryPlugin
 from .recorder import EpisodeRecorder
+from .task_manager import TaskManager
 from .types import ActionResult, DecisionRecord, DuckState, VlmObservation
 from .vlm import VlmDecisionClient, VlmReply, render_prompt
 
@@ -26,7 +27,8 @@ class DuckVlmLoop:
     def __init__(self, *, vlm: VlmDecisionClient | None = None, state_provider: StateProvider,
                  image_provider: ImageProvider, kick: Any, policies: dict[str, Any] | None = None,
                  reset_callback: Callable[[], None] | None = None,
-                 loop_config: LoopConfig | None = None, vlm_config: VLMConfig | None = None):
+                 loop_config: LoopConfig | None = None, vlm_config: VLMConfig | None = None,
+                 task_manager: TaskManager | None = None):
         self.vlm = vlm or VlmDecisionClient()
         self.state_provider = state_provider
         self.image_provider = image_provider
@@ -35,6 +37,7 @@ class DuckVlmLoop:
         self.reset_callback = reset_callback or (lambda: None)
         self.loop_config = loop_config or LoopConfig()
         self.vlm_config = vlm_config or getattr(self.vlm, "config", VLMConfig.from_env())
+        self.task_manager = task_manager
         self.plugins = PluginSuite.build(self.loop_config.plugins)
         self.interpreter = DuckActionInterpreter(kick, self.policies)
         self.recorder = EpisodeRecorder(self.loop_config.run_dir)
@@ -43,6 +46,7 @@ class DuckVlmLoop:
         self.paused = False
         self.single_step = False
         self.task = ""
+        self.active_task_id = ""
         self.target = "ball"
         self.step_index = 0
         self.last_token = ""
@@ -93,6 +97,11 @@ class DuckVlmLoop:
         self.interpreter.cancel(reset_action=True)
         self._pending = None
         self._pending_observation = None
+        self.active_task_id = ""
+        if self.task_manager is not None:
+            task_def = self.task_manager.start(self.task)
+            if task_def:
+                self.active_task_id = str(task_def.get("id") or "")
         should_record = self.loop_config.auto_start_recording if record is None else bool(record)
         if should_record and not self.recorder.active:
             self.recorder.start(self.task, self.target, self.vlm_config.mode,
@@ -126,6 +135,8 @@ class DuckVlmLoop:
         self._pending = None
         self._pending_observation = None
         self.running = False
+        if self.task_manager is not None:
+            self.task_manager.stop()
         self.last_result = reason
         self.recorder.record_event({"type": "control", "action": "stop", "reason": reason})
         self.recorder.finish(self.status())
@@ -163,6 +174,15 @@ class DuckVlmLoop:
                 self.recorder.record_event({"type": "fall_recovery", "sim_time": sim_time})
             return zero
         self._fall_since = None
+        if self.task_manager is not None:
+            task_state = self.task_manager.step(dt)
+            if task_state.get("success") or task_state.get("failure"):
+                self.interpreter.cancel(reset_action=True)
+                self.running = False
+                self.last_result = "task_success" if task_state.get("success") else "task_failed"
+                self.recorder.record_event({"type": "task_end", "state": task_state, "sim_time": sim_time})
+                self.recorder.finish(self.status())
+                return zero
         if self.interpreter.busy:
             tick = self.interpreter.tick(dt)
             if tick.done:
@@ -227,7 +247,7 @@ class DuckVlmLoop:
 
     def _make_observation(self, state: DuckState) -> VlmObservation:
         image = self.image_provider() or b""
-        observation = VlmObservation(task=self.task, target=self.target, image_jpeg=image,
+        observation = VlmObservation(task=self.task, task_id=self.active_task_id, target=self.target, image_jpeg=image,
                                      state=state, step_index=self.step_index, recent_actions=[])
         context = {"action_token": self.last_token, "last_result": self.last_result,
                    "allowed_tokens": available_tokens(self.policies)}
@@ -304,7 +324,7 @@ class DuckVlmLoop:
             phase = "READY"
         return {
             "phase": phase, "running": self.running, "paused": self.paused,
-            "task": self.task, "target": self.target, "mode": self.vlm_config.mode,
+            "task": self.task, "task_id": self.active_task_id, "target": self.target, "mode": self.vlm_config.mode,
             "allowed_tokens": list(available_tokens(self.policies)),
             "provider": self.vlm_config.provider,
             "model": self.vlm_config.ft_model if self.vlm_config.mode == "finetuned" else self.vlm_config.model,
@@ -314,6 +334,7 @@ class DuckVlmLoop:
             "latency_ms": None if self.last_latency_s is None else round(self.last_latency_s * 1000),
             "pending": self._pending is not None, "interpreter": self.interpreter.status(),
             "plugins": self.plugins.status(), "recording": self.recorder.active,
+            "task_eval": self.task_manager.status() if self.task_manager is not None else None,
             "session_dir": str(self.recorder.session_dir) if self.recorder.session_dir else "",
             "recent_results": [asdict(item) for item in self._result_history[-8:]],
         }

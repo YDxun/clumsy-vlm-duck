@@ -1,0 +1,231 @@
+scene_id: duck_obstacle_v1
+version: 1
+priority: 3
+units:
+  length: m
+  angle: rad
+  mass: kg
+coordinate_frame:
+  up: +Z
+  robot_default_forward: +X
+robot:
+  body_name: trunk_base
+  root_body: trunk_base
+  controlled_joints: &id001
+  - left_hip_yaw
+  - left_hip_roll
+  - left_hip_pitch
+  - left_knee
+  - left_ankle
+  - neck_pitch
+  - head_pitch
+  - head_yaw
+  - head_roll
+  - right_hip_yaw
+  - right_hip_roll
+  - right_hip_pitch
+  - right_knee
+  - right_ankle
+  head_joints:
+  - neck_pitch
+  - head_pitch
+  - head_yaw
+  - head_roll
+  actuators: *id001
+  nominal_height_m: 0.25
+  footprint_radius_m: 0.15
+  initial_keyframe: initial
+  spawn:
+    xy:
+    - -1.8
+    - -0.8
+    z_m: 0.125
+    yaw_deg: 0
+terrain:
+  step_heights_m:
+  - 0.05
+  - 0.1
+  ramp_angle_deg: 12.0
+  corridor_clear_width_m: 0.5
+  corridor_inner_faces_y_m:
+  - 0.6
+  - 1.1
+  friction_low: 0.35
+  friction_high: 1.25
+  bodies:
+    ramp_12deg:
+      type: box
+      center:
+      - 0.7
+      - 0.85
+      - 0.149201
+      size_m:
+      - 1.2
+      - 0.9
+      - 0.05
+      euler_rad:
+      - 0
+      - -0.20944
+      - 0
+    step_5cm:
+      type: box
+      center:
+      - -0.55
+      - -1.1
+      - 0.025
+      size_m:
+      - 0.7
+      - 0.9
+      - 0.05
+    step_10cm:
+      type: box
+      center:
+      - 0.15
+      - -1.1
+      - 0.05
+      size_m:
+      - 0.7
+      - 0.9
+      - 0.1
+    corridor_left:
+      type: box
+      center:
+      - -1.0
+      - 0.55
+      - 0.15
+      size_m:
+      - 1.0
+      - 0.1
+      - 0.3
+    corridor_right:
+      type: box
+      center:
+      - -1.0
+      - 1.15
+      - 0.15
+      size_m:
+      - 1.0
+      - 0.1
+      - 0.3
+    friction_low_patch:
+      type: box
+      center:
+      - -1.9
+      - 1.35
+      - 0.002
+      size_m:
+      - 0.7
+      - 0.7
+      - 0.004
+      friction: 0.35
+    friction_high_patch:
+      type: box
+      center:
+      - -1.65
+      - -1.35
+      - 0.002
+      size_m:
+      - 0.7
+      - 0.7
+      - 0.004
+      friction: 1.25
+objects:
+- id: main_ball
+  body: ball
+  kind: sphere
+  radius_m: 0.035
+  mass_kg: 0.015
+  dynamic: true
+  default_pose:
+  - 1.15
+  - -0.1
+  - 0.035
+  semantic_labels:
+  - orange ball
+  - 橙色球
+  - ball
+  affordances:
+  - kick
+  - push
+- id: movable_box
+  body: obstacle_box_movable
+  kind: box
+  half_size_m:
+  - 0.05
+  - 0.05
+  - 0.05
+  mass_kg: 0.08
+  dynamic: true
+  default_pose:
+  - 0.95
+  - -0.65
+  - 0.05
+  semantic_labels:
+  - movable box
+  - 可移动箱子
+  affordances:
+  - push
+  - avoid
+zones:
+- id: red
+  body: zone_red
+  radius_m: 0.25
+  center:
+  - -1.7
+  - 0.0
+  - 0.003
+- id: blue
+  body: zone_blue
+  radius_m: 0.25
+  center:
+  - 0.0
+  - 1.65
+  - 0.003
+- id: green
+  body: zone_green
+  radius_m: 0.25
+  center:
+  - 1.9
+  - 1.45
+  - 0.003
+beacon:
+  body: beacon_target
+  center:
+  - 2.05
+  - 0.85
+  - 0.2
+  radius_m: 0.025
+  half_height_m: 0.2
+cameras:
+- name: cam_overhead
+  pos:
+  - 0
+  - 0
+  - 6.2
+  xyaxes:
+  - 1
+  - 0
+  - 0
+  - 0
+  - 1
+  - 0
+  fovy: 50
+  resolution:
+  - 640
+  - 480
+- name: cam_workspace
+  pos:
+  - -4
+  - -3.5
+  - 3.5
+  xyaxes:
+  - 0.659
+  - -0.753
+  - 0
+  - 0.413
+  - 0.361
+  - 0.836
+  fovy: 52
+  resolution:
+  - 640
+  - 480

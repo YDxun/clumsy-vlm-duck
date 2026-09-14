@@ -1,0 +1,533 @@
+{
+  "scene": "duck_obstacle_v1",
+  "scene_xml": "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_obstacle_v1\\scene.xml",
+  "model": {
+    "nq": 35,
+    "nv": 32,
+    "nu": 14,
+    "nbody": 22,
+    "ngeom": 97,
+    "njnt": 17
+  },
+  "passed": true,
+  "checks": [
+    {
+      "name": "XML_LOAD",
+      "passed": true,
+      "skipped": false,
+      "detail": "MuJoCo model compiled",
+      "metrics": {
+        "nq": 35,
+        "nv": 32,
+        "nu": 14,
+        "nbody": 22,
+        "ngeom": 97,
+        "njnt": 17
+      }
+    },
+    {
+      "name": "unique_name_audit",
+      "passed": true,
+      "skipped": false,
+      "detail": "duplicates={}",
+      "metrics": {}
+    },
+    {
+      "name": "ROBOT_COMPATIBILITY",
+      "passed": true,
+      "skipped": false,
+      "detail": "root=trunk_base joints=14/14 head=4/4 actuators=14",
+      "metrics": {
+        "root_body": "trunk_base",
+        "controlled_joints": [
+          "left_hip_yaw",
+          "left_hip_roll",
+          "left_hip_pitch",
+          "left_knee",
+          "left_ankle",
+          "neck_pitch",
+          "head_pitch",
+          "head_yaw",
+          "head_roll",
+          "right_hip_yaw",
+          "right_hip_roll",
+          "right_hip_pitch",
+          "right_knee",
+          "right_ankle"
+        ],
+        "head_joints": [
+          "head_pitch",
+          "head_roll",
+          "head_yaw",
+          "neck_pitch"
+        ],
+        "actuators": 14,
+        "ctrl_ranges": [
+          [
+            -10.0,
+            10.0
+          ],
+          [
+            -10.0,
+            10.0
+          ],
+          [
+            -10.0,
+            10.0
+          ]
+        ],
+        "min_robot_geom_z": 0.007817637801251354,
+        "initial_scene_overlap": []
+      }
+    },
+    {
+      "name": "INITIAL_CONTACT",
+      "passed": true,
+      "skipped": false,
+      "detail": "free bodies rest on collision surfaces without penetration",
+      "metrics": {
+        "bodies": [
+          {
+            "body": "obstacle_box_movable",
+            "xyz": [
+              0.95,
+              -0.65,
+              0.05
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          },
+          {
+            "body": "ball",
+            "xyz": [
+              1.15,
+              -0.1,
+              0.035
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          }
+        ],
+        "contacts": [
+          {
+            "geom1": "floor",
+            "geom2": "geom_box_movable",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_box_movable",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_box_movable",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_box_movable",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_ball",
+            "dist": 0.0
+          }
+        ],
+        "anomalies": []
+      }
+    },
+    {
+      "name": "STATIC_GEOM_OVERLAP",
+      "passed": true,
+      "skipped": false,
+      "detail": "no unintended positive-volume static intersections",
+      "metrics": {
+        "overlaps": []
+      }
+    },
+    {
+      "name": "PHYSICS_2000_STEPS_NO_COMMAND",
+      "passed": true,
+      "skipped": false,
+      "detail": "finite passive physics; biped may fall without a balance policy",
+      "metrics": {
+        "steps": 2000,
+        "simulated_time_s": 10.0,
+        "nan_detected": 0,
+        "final_upright": 0.13518707360045323,
+        "max_qvel": 6.607575764536387,
+        "max_qacc": 795.1027828564141,
+        "min_contact_dist": -0.005266017207702617,
+        "max_contacts": 18,
+        "free_body_motion_m": {
+          "obstacle_box_movable": 1.6997494885151468e-05,
+          "ball": 6.763410434191403e-05
+        }
+      }
+    },
+    {
+      "name": "PHYSICS_2000_STEPS_STAND",
+      "passed": true,
+      "skipped": false,
+      "detail": "2000 substeps driven by project alpha_stand ONNX",
+      "metrics": {
+        "steps": 2000,
+        "simulated_time_s": 10.0,
+        "nan_detected": 0,
+        "min_upright": 0.9999657061584136,
+        "max_root_move_m": 0.000283252337408459,
+        "max_qvel": 0.007701107550889379,
+        "max_qacc": 1.7319965011592193
+      }
+    },
+    {
+      "name": "OBSTACLE_GEOMETRY",
+      "passed": true,
+      "skipped": false,
+      "detail": "12 degree grounded ramp, 5/10 cm steps, 0.50 m corridor, moderate friction",
+      "metrics": {
+        "ramp_angle_deg": 12.000028061219965,
+        "ramp_lowest_z": 1.0601750755068196e-08,
+        "ramp_highest_z": 0.29840198939824925,
+        "step_top_z": [
+          0.05,
+          0.1
+        ],
+        "corridor_free_width_m": 0.4999999999999998,
+        "friction": [
+          0.35,
+          1.25
+        ]
+      }
+    },
+    {
+      "name": "METADATA_CONSISTENCY",
+      "passed": true,
+      "skipped": false,
+      "detail": "metadata checked against expanded model",
+      "metrics": {
+        "problems": []
+      }
+    },
+    {
+      "name": "TASK_REFERENCE_CHECK",
+      "passed": true,
+      "skipped": false,
+      "detail": "all task identifiers resolve",
+      "metrics": {
+        "references": [
+          "ball",
+          "beacon_target",
+          "trunk_base",
+          "zone_blue",
+          "zone_green",
+          "zone_red"
+        ],
+        "missing": []
+      }
+    },
+    {
+      "name": "SUCCESS_EVALUATOR",
+      "passed": true,
+      "skipped": false,
+      "detail": "success conditions exercised with mutated MjData",
+      "metrics": {
+        "checks": {
+          "rough_ground_walk": true,
+          "push_ball_around_obstacle": true,
+          "multi_target_navigation": true
+        }
+      }
+    },
+    {
+      "name": "FAILURE_EVALUATOR",
+      "passed": true,
+      "skipped": false,
+      "detail": "fallen duration, outside bounds and timeout evaluated",
+      "metrics": {
+        "fallen_early": false,
+        "fallen_late": true,
+        "outside": true,
+        "timeout_reason": "timeout"
+      }
+    },
+    {
+      "name": "CAM_OVERHEAD",
+      "passed": true,
+      "skipped": false,
+      "detail": "rendered F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_obstacle_v1\\previews\\overhead.png",
+      "metrics": {
+        "mean": 76.39795355902778,
+        "std": 88.16876595531382,
+        "targets_uv": {
+          "trunk_base": [
+            167.50173009709806,
+            307.7770088457342
+          ],
+          "ball": [
+            416.0071224753671,
+            248.34844543264063
+          ]
+        }
+      }
+    },
+    {
+      "name": "CAM_WORKSPACE",
+      "passed": true,
+      "skipped": false,
+      "detail": "rendered F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_obstacle_v1\\previews\\workspace.png",
+      "metrics": {
+        "mean": 28.76861111111111,
+        "std": 51.83638226209826,
+        "targets_uv": {
+          "trunk_base": [
+            259.2590668596109,
+            337.75101444103325
+          ],
+          "ball": [
+            378.45409678304645,
+            207.90856392009965
+          ]
+        }
+      }
+    },
+    {
+      "name": "DUCKVLM_CAMERA",
+      "passed": true,
+      "skipped": false,
+      "detail": "actual duck_play/local-sim head camera; ball visibility measured by render differencing",
+      "metrics": {
+        "visible_blob": {
+          "front": {
+            "pixels": 566,
+            "centroid": [
+              159.78,
+              96.98
+            ]
+          },
+          "left": {
+            "pixels": 684,
+            "centroid": [
+              44.99,
+              102.41
+            ]
+          },
+          "right": {
+            "pixels": 685,
+            "centroid": [
+              274.74,
+              102.55
+            ]
+          },
+          "turn": {
+            "pixels": 0,
+            "centroid": null
+          }
+        },
+        "image_mean": {
+          "front": 89.28,
+          "left": 85.97,
+          "right": 85.67,
+          "turn": 78.47
+        },
+        "outputs": [
+          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_obstacle_v1\\previews\\duckvlm_front.png",
+          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_obstacle_v1\\previews\\duckvlm_left.png",
+          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_obstacle_v1\\previews\\duckvlm_right.png"
+        ]
+      }
+    },
+    {
+      "name": "LOCOMOTION",
+      "passed": true,
+      "skipped": false,
+      "detail": "project alpha_walking/alpha_stand controls executed",
+      "metrics": {
+        "outcomes": {
+          "forward": {
+            "disp_xy": [
+              0.21150739069723978,
+              -0.0008977569735569846
+            ],
+            "distance": 0.21150929598279694,
+            "dyaw_deg": -8.197999648014076,
+            "upright": 0.9982924567110311,
+            "speed": 0.17669162616572492
+          },
+          "backward": {
+            "disp_xy": [
+              -0.6053824871677795,
+              0.00018245684029194464
+            ],
+            "distance": 0.6053825146632048,
+            "dyaw_deg": -9.936484525020632,
+            "upright": 0.999596101732093,
+            "speed": 0.3047423003151859
+          },
+          "turn_left": {
+            "disp_xy": [
+              0.001996884828640022,
+              0.01499251295635895
+            ],
+            "distance": 0.015124913016789341,
+            "dyaw_deg": 26.784386380110732,
+            "upright": 0.9981856258783783,
+            "speed": 0.03274795370275217
+          },
+          "turn_right": {
+            "disp_xy": [
+              0.001475739948051391,
+              0.0019745035920274434
+            ],
+            "distance": 0.0024650502691028428,
+            "dyaw_deg": -14.661184888413459,
+            "upright": 0.9998582959153453,
+            "speed": 0.001165496488820315
+          },
+          "stop": {
+            "disp_xy": [
+              9.180826655841301e-05,
+              -4.3003982732492396e-05
+            ],
+            "distance": 0.00010138096635620081,
+            "dyaw_deg": 0.0880599002337874,
+            "upright": 0.9999686827249497,
+            "speed": 0.0010403624689224009
+          }
+        }
+      }
+    },
+    {
+      "name": "OBJECT_INTERACTION",
+      "passed": true,
+      "skipped": false,
+      "detail": "walking approach plus existing ONNX kick policy",
+      "metrics": {
+        "natural_workspace_approach": false,
+        "approach_steps": 221,
+        "robot_before": [
+          0.6530813354480993,
+          -0.10007343745774895,
+          0.11637236396590056
+        ],
+        "robot_after": [
+          1.1142923897521801,
+          -0.0825771121459553,
+          0.11628594100817935
+        ],
+        "ball_before": [
+          1.15,
+          -0.1,
+          0.03493236589564347
+        ],
+        "ball_after": [
+          1.1816643431558302,
+          -0.11425540080507347,
+          0.0349323658950394
+        ],
+        "ball_displacement_m": 0.03472530892020211,
+        "attempts": [
+          {
+            "attempt": 1,
+            "kick": "ball_kick_right",
+            "ball_displacement_m": 7.978340210712531e-13,
+            "ball_xyz": [
+              1.15,
+              -0.1,
+              0.034932365894845635
+            ]
+          },
+          {
+            "attempt": 2,
+            "kick": "ball_kick_left",
+            "ball_displacement_m": 0.03472530892020211,
+            "ball_xyz": [
+              1.1816643431558302,
+              -0.11425540080507347,
+              0.0349323658950394
+            ]
+          }
+        ],
+        "max_qvel": 0.8515502044772991
+      }
+    },
+    {
+      "name": "MINIMAL_CLOSED_LOOP",
+      "passed": true,
+      "skipped": true,
+      "detail": "P0 workspace-only acceptance test",
+      "metrics": {}
+    },
+    {
+      "name": "DOORWAY_TRAVERSAL",
+      "passed": true,
+      "skipped": true,
+      "detail": "home-only acceptance test",
+      "metrics": {}
+    },
+    {
+      "name": "FRICTION_TRAVERSAL",
+      "passed": true,
+      "skipped": false,
+      "detail": "robot entered, crossed and stopped on both friction zones",
+      "metrics": {
+        "zones": {
+          "low": {
+            "start": [
+              -1.897731172309411,
+              1.3498922275834346,
+              0.12033997049021287
+            ],
+            "end": [
+              -1.5689506288426098,
+              1.3232943887009232,
+              0.12315798439740039
+            ],
+            "displacement_m": 0.3298546510139658,
+            "upright": 0.9999988028575086,
+            "stop_speed": 0.04968262854314721
+          },
+          "high": {
+            "start": [
+              -1.8976635418601202,
+              -1.3501719926085078,
+              0.12023604840011819
+            ],
+            "end": [
+              -1.5730877548822284,
+              -1.3803656927204602,
+              0.123710243868957
+            ],
+            "displacement_m": 0.32597714800085037,
+            "upright": 0.9999782422203586,
+            "stop_speed": 0.0004628244295552462
+          }
+        }
+      }
+    },
+    {
+      "name": "CUBE_INTERACTION",
+      "passed": true,
+      "skipped": true,
+      "detail": "workspace-only acceptance test",
+      "metrics": {}
+    },
+    {
+      "name": "DUCKVLM_DECISION_DRY_RUN",
+      "passed": true,
+      "skipped": false,
+      "detail": "RGB/state reached the existing DuckVLM decision client",
+      "metrics": {
+        "target_visible": true,
+        "target_range_m": 3.0332490830790673,
+        "target_bearing_deg": 13.34872711328738,
+        "token": "FWD",
+        "image_bytes": 5042,
+        "note": "external model inference not claimed without credentials"
+      }
+    }
+  ],
+  "elapsed_s": 2.2324914000346325
+}

@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from .scenes import SceneSpec
 from .types import DuckState
 
 
@@ -24,15 +25,21 @@ _TARGET_ALIASES = {
 
 
 class DuckStateSensor:
-    def __init__(self, sim: Any):
+    def __init__(self, sim: Any, scene: SceneSpec | None = None):
         self.sim = sim
+        self.scene = scene
         self._target_cache: dict[str, int | None] = {}
 
     def resolve_target(self, target_name: str) -> int | None:
         key = (target_name or "ball").strip().lower()
         canonical = _TARGET_ALIASES.get(key, key)
-        if canonical in self._target_cache:
-            return self._target_cache[canonical]
+        if self.scene is not None:
+            resolved = self.scene.resolve_body(target_name)
+            if resolved:
+                canonical = resolved
+        cache_key = f"{target_name}|{canonical}"
+        if cache_key in self._target_cache:
+            return self._target_cache[cache_key]
         body_id: int | None = None
         if canonical == "ball":
             body_id = int(getattr(self.sim, "ball_body", -1))
@@ -53,7 +60,7 @@ class DuckStateSensor:
                 body_id = -1
         if body_id is not None and body_id < 0:
             body_id = None
-        self._target_cache[canonical] = body_id
+        self._target_cache[cache_key] = body_id
         return body_id
 
     def snapshot(self, target_name: str = "ball", sim_time: float = 0.0) -> DuckState:

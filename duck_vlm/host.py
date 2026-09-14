@@ -8,14 +8,20 @@ import numpy as np
 
 from .config import LoopConfig, VLMConfig
 from .loop import DuckVlmLoop
+from .scenes import catalog
 from .state import DuckStateSensor
+from .task_manager import TaskManager
 from .vlm import VlmDecisionClient
 
 
 class DuckVlmHost:
     def __init__(self, server: Any):
         self.server = server
-        self.sensor = DuckStateSensor(server.sim)
+        self.scene = getattr(server, "scene_spec", None)
+        if self.scene is None and getattr(server, "scene_id", None):
+            self.scene = catalog().load(server.scene_id)
+        self.sensor = DuckStateSensor(server.sim, self.scene)
+        self.task_manager = TaskManager(server.sim, self.scene)
         self.vlm = VlmDecisionClient(VLMConfig.from_env())
         self.loop = DuckVlmLoop(
             vlm=self.vlm,
@@ -26,6 +32,7 @@ class DuckVlmHost:
             reset_callback=server.sim.reset,
             loop_config=LoopConfig(),
             vlm_config=self.vlm.config,
+            task_manager=self.task_manager,
         )
 
     def _state(self, target: str, sim_time: float):
@@ -87,4 +94,7 @@ class DuckVlmHost:
         return status
 
     def status(self) -> dict[str, Any]:
-        return self.loop.status()
+        status = self.loop.status()
+        status["scene_id"] = getattr(self.scene, "scene_id", None)
+        status["scene_tasks"] = [t.get("id") for t in self.scene.list_tasks()] if self.scene else []
+        return status

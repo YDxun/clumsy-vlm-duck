@@ -1,0 +1,5 @@
+mujoco>=3.12,<4
+numpy>=1.26
+PyYAML>=6
+Pillow>=10
+onnxruntime>=1.17

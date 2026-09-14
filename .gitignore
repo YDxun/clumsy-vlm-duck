@@ -16,3 +16,6 @@ duck_vlm/runs/
 .tmp_duck_vlm.tgz
 .tmp_server_code_20260914*
 .tmp_ssh_tunnel_*.pid
+MicroDuck_scenes_20260914*.zip
+MicroDuck_scenes_20260914/
+.tmp_scenes_validated_20260914/

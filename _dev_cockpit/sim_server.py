@@ -21,6 +21,7 @@ import asyncio
 import json
 import math
 import os
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -44,7 +45,23 @@ POLICY_DIR = HERE / "microduck/policies"
 # --- Harness Duck C1 integration (opt-in: DUCKAGENT_ENABLE=1) ---
 DUCKAGENT_ENABLE = os.environ.get("DUCKAGENT_ENABLE") == "1"
 DUCK_VLM_ENABLE = os.environ.get("DUCK_VLM_ENABLE", "1") == "1"
-if DUCKAGENT_ENABLE:
+
+# --- Verified DuckVLM scene pack selection ---
+DUCK_SCENE_ID = os.environ.get("DUCK_SCENE_ID", "").strip()
+if not DUCK_SCENE_ID:
+    _scene_file = HERE / ".duck_scene_id"
+    if _scene_file.exists():
+        DUCK_SCENE_ID = _scene_file.read_text(encoding="utf-8").strip()
+SCENE_SPEC = None
+if DUCK_SCENE_ID:
+    try:
+        from duck_vlm.scenes import catalog as _scene_catalog
+        SCENE_SPEC = _scene_catalog().load(DUCK_SCENE_ID)
+        SCENE_XML = SCENE_SPEC.xml
+    except Exception as exc:
+        print(f"[scene] load failed for {DUCK_SCENE_ID}: {exc}", flush=True)
+        DUCK_SCENE_ID = ""
+if DUCKAGENT_ENABLE and not DUCK_SCENE_ID:
     try:
         from duck_agent import scenes as _da_scenes
         SCENE_XML = _da_scenes.ensure()
@@ -142,6 +159,8 @@ class Server:
     def __init__(self):
         self.sim = LocalSim()
         self.policies = PolicyBank()
+        self.scene_id = DUCK_SCENE_ID
+        self.scene_spec = SCENE_SPEC
         self.viewers = set()
         self.board = None                 # X5 control websocket
         self.vision = None
@@ -579,6 +598,42 @@ class Server:
             print("[vision] detached", flush=True)
         return ws
 
+    async def api_scenes(self, request):
+        from duck_vlm.scenes import catalog
+        try:
+            cat = catalog()
+            scenes = []
+            for sid in cat.list_ids():
+                spec = cat.load(sid)
+                scenes.append({"id": sid, "tasks": [t.get("id") for t in spec.list_tasks()]})
+            return web.json_response({"current": self.scene_id or None, "scenes": scenes})
+        except Exception as exc:
+            return web.json_response({"current": self.scene_id or None, "scenes": [], "error": str(exc)})
+
+    async def api_scene_select(self, request):
+        from duck_vlm.scenes import catalog
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        scene_id = str(data.get("scene_id") or "").strip()
+        try:
+            spec = catalog().load(scene_id)
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=404)
+        (HERE / ".duck_scene_id").write_text(scene_id + "\n", encoding="utf-8")
+        if data.get("restart", True):
+            def _restart():
+                subprocess.Popen(
+                    ["/usr/bin/python3", str(HERE / "service.py"), "restart"],
+                    cwd=str(HERE), env=os.environ.copy(), stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True, close_fds=True,
+                )
+            asyncio.get_running_loop().call_later(0.8, _restart)
+        return web.json_response({"ok": True, "scene_id": spec.scene_id,
+                                  "restarting": bool(data.get("restart", True))})
+
     async def http_vlm(self, request):
         return web.FileResponse(HERE / "web/vlm.html")
 
@@ -660,6 +715,8 @@ async def main():
     app.router.add_get("/", server.http_index)
     app.router.add_get("/duck", server.http_duck)
     app.router.add_get("/healthz", server.http_health)
+    app.router.add_get("/api/scenes", server.api_scenes)
+    app.router.add_post("/api/scenes/select", server.api_scene_select)
     app.router.add_get("/vlm", server.http_vlm)
     app.router.add_get("/api/vlm/state", server.api_vlm_state)
     app.router.add_post("/api/vlm/control", server.api_vlm_control)

@@ -1,0 +1,167 @@
+tasks:
+- id: rough_ground_walk
+  instruction_zh: 通过低台阶和12度坡道到达黄色信标
+  instruction_en: Traverse the low steps and 12-degree ramp to reach the beacon.
+  max_duration_s: 70
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - -0.8
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: beacon_target
+      distance_m: 0.35
+    - type: upright
+      body: trunk_base
+      min_upright: 0.5
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+- id: narrow_corridor
+  instruction_zh: 通过0.5米宽通道并到达蓝色区域
+  instruction_en: Pass through the 0.5 m corridor and reach the blue zone.
+  max_duration_s: 45
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.3
+    - 0.85
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  success:
+    all:
+    - type: body_in_zone
+      body: trunk_base
+      zone: zone_blue
+      radius_m: 0.22
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+- id: recover_after_fall
+  instruction_zh: 跌倒后恢复站立并稳定2秒
+  instruction_en: Recover to upright standing after a fall and remain stable for 2
+    s.
+  max_duration_s: 30
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.4
+    - -0.2
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  success:
+    all:
+    - type: upright
+      body: trunk_base
+      min_upright: 0.75
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.1
+    - type: hold_condition_s
+      seconds: 2.0
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+- id: push_ball_around_obstacle
+  instruction_zh: 把球绕过柱子推到绿色区域
+  instruction_en: Push/kick the ball around the pillars into the green zone.
+  max_duration_s: 75
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - -0.8
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  success:
+    all:
+    - type: body_in_zone
+      body: ball
+      zone: zone_green
+      radius_m: 0.22
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+- id: multi_target_navigation
+  instruction_zh: 按顺序访问红色、蓝色、绿色区域
+  instruction_en: Visit the red, blue, and green zones in order.
+  max_duration_s: 90
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - -0.8
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  success:
+    all:
+    - type: ordered_zone_sequence
+      body: trunk_base
+      zones:
+      - zone_red
+      - zone_blue
+      - zone_green
+      radius_m: 0.22
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0

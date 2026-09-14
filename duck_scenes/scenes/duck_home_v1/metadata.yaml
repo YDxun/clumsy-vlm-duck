@@ -1,0 +1,172 @@
+scene_id: duck_home_v1
+version: 1
+priority: 2
+units:
+  length: m
+  angle: rad
+  mass: kg
+coordinate_frame:
+  up: +Z
+  robot_default_forward: +X
+robot:
+  body_name: trunk_base
+  root_body: trunk_base
+  controlled_joints: &id001
+  - left_hip_yaw
+  - left_hip_roll
+  - left_hip_pitch
+  - left_knee
+  - left_ankle
+  - neck_pitch
+  - head_pitch
+  - head_yaw
+  - head_roll
+  - right_hip_yaw
+  - right_hip_roll
+  - right_hip_pitch
+  - right_knee
+  - right_ankle
+  head_joints:
+  - neck_pitch
+  - head_pitch
+  - head_yaw
+  - head_roll
+  actuators: *id001
+  nominal_height_m: 0.25
+  footprint_radius_m: 0.15
+  initial_keyframe: initial
+  spawn:
+    xy:
+    - -1.8
+    - 0.0
+    z_m: 0.125
+    yaw_deg: 0
+layout:
+  floor_size_m:
+  - 6.0
+  - 5.0
+  door_clear_width_m: 1.4
+  door_inner_faces_y_m:
+  - -0.7
+  - 0.7
+  wall_height_m: 0.25
+furniture:
+- id: sofa
+  geom: sofa_low
+  size_m:
+  - 1.2
+  - 0.56
+  - 0.1
+  top_z_m: 0.1
+  center_xyz:
+  - 1.75
+  - 1.65
+  - 0.05
+- id: tea_table
+  geom: table_low
+  size_m:
+  - 0.76
+  - 0.56
+  - 0.08
+  top_z_m: 0.08
+  center_xyz:
+  - 1.45
+  - -1.35
+  - 0.04
+people:
+- id: owner
+  body: person_owner
+  radius_m: 0.12
+  height_m: 0.9
+  center_z_m: 0.45
+  color: red
+  collision: true
+  semantic_labels:
+  - owner
+  - 主人
+  center_xyz:
+  - 1.65
+  - 0.55
+  - 0.45
+- id: stranger
+  body: person_stranger
+  radius_m: 0.12
+  height_m: 0.9
+  center_z_m: 0.45
+  color: blue
+  collision: true
+  semantic_labels:
+  - stranger
+  - 陌生人
+  center_xyz:
+  - -1.55
+  - 1.1
+  - 0.45
+objects:
+- id: main_ball
+  body: ball
+  kind: sphere
+  radius_m: 0.035
+  mass_kg: 0.015
+  dynamic: true
+  default_pose:
+  - 2.25
+  - -1.7
+  - 0.035
+  semantic_labels:
+  - orange ball
+  - 橙色球
+  - ball
+  affordances:
+  - approach
+  - kick
+  - push
+zones:
+- id: green_zone
+  body: zone_green
+  radius_m: 0.35
+  center:
+  - -1.7
+  - -1.55
+  - 0.003
+beacon:
+  body: beacon_target
+  center:
+  - 2.25
+  - 2.15
+  - 0.2
+  radius_m: 0.025
+  half_height_m: 0.2
+cameras:
+- name: cam_overhead
+  pos:
+  - 0
+  - 0
+  - 7.0
+  xyaxes:
+  - 1
+  - 0
+  - 0
+  - 0
+  - 1
+  - 0
+  fovy: 48
+  resolution:
+  - 640
+  - 480
+- name: cam_workspace
+  pos:
+  - -5
+  - -4.5
+  - 4.2
+  xyaxes:
+  - 0.669
+  - -0.743
+  - 0
+  - 0.39
+  - 0.351
+  - 0.851
+  fovy: 52
+  resolution:
+  - 640
+  - 480

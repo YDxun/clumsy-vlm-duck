@@ -68,9 +68,10 @@ class DuckState:
 @dataclass
 class VlmObservation:
     task: str
-    target: str
-    image_jpeg: bytes
-    state: DuckState
+    target: str = "ball"
+    image_jpeg: bytes = b""
+    state: DuckState = field(default_factory=DuckState)
+    task_id: str = ""
     step_index: int = 0
     recent_actions: list[str] = field(default_factory=list)
     history_text: str = ""
@@ -86,6 +87,7 @@ class VlmObservation:
     def to_dict(self, include_image: bool = False) -> dict[str, Any]:
         data: dict[str, Any] = {
             "task": self.task,
+            "task_id": self.task_id,
             "target": self.target,
             "step_index": self.step_index,
             "recent_actions": list(self.recent_actions),
@@ -127,4 +129,4 @@ class ActionResult:
     ok: bool
     note: str
     sim_time: float
-    state: DuckState | None = None
+    state: DuckState = field(default_factory=DuckState)

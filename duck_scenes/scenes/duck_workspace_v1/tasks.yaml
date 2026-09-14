@@ -1,0 +1,183 @@
+tasks:
+- id: walk_to_ball
+  instruction_zh: 走到橙色球0.4米内并停住
+  instruction_en: Walk to within 40 cm of the orange ball and stop.
+  max_duration_s: 30
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  setup: {}
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: ball
+      distance_m: 0.4
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: kick_ball_to_zone
+  instruction_zh: 找到橙色球并把它踢进绿色区域
+  instruction_en: Find the orange ball and kick it into the green zone.
+  max_duration_s: 45
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  setup: {}
+  success:
+    all:
+    - type: body_in_zone
+      body: ball
+      zone: zone_green
+      radius_m: 0.3
+    - type: upright
+      body: trunk_base
+      min_upright: 0.55
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: push_red_cube
+  instruction_zh: 把红色方块推到蓝色区域
+  instruction_en: Push the red cube into the blue zone.
+  max_duration_s: 45
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  setup: {}
+  success:
+    all:
+    - type: body_in_zone
+      body: obj_cube_red
+      zone: zone_blue
+      radius_m: 0.24
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: choose_red_not_blue
+  instruction_zh: 在红蓝两个方块中选择红色方块并靠近
+  instruction_en: Choose the red cube, not the blue cube, and approach it.
+  max_duration_s: 30
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  setup: {}
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: obj_cube_red
+      distance_m: 0.3
+    - type: distance_xy_ge
+      body: trunk_base
+      target: obj_cube_blue
+      distance_m: 0.45
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: walk_turn_stop
+  instruction_zh: 向前走约0.8米，右转约90度，然后停止
+  instruction_en: Walk forward about 0.8 m, turn right about 90 degrees, then stop.
+  max_duration_s: 25
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - 0.8
+      - -0.1
+      radius_m: 0.35
+      yaw_deg: -90
+      yaw_tolerance_deg: 25
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: avoid_obstacle_reach_beacon
+  instruction_zh: 绕过两个障碍物到达黄色信标
+  instruction_en: Avoid both obstacles and reach the beacon.
+  max_duration_s: 40
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.08
+    random_yaw_deg: 8
+  setup: {}
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: beacon_target
+      distance_m: 0.3
+    - type: upright
+      body: trunk_base
+      min_upright: 0.55
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0

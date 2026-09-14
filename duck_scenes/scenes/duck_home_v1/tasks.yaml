@@ -1,0 +1,197 @@
+tasks:
+- id: come_to_owner
+  instruction_zh: 找到主人并靠近到0.5米内
+  instruction_en: Find the owner and approach within 0.5 m.
+  max_duration_s: 45
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.12
+    random_yaw_deg: 10
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: person_owner
+      distance_m: 0.5
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.9
+      - -2.4
+      max_xy:
+      - 2.9
+      - 2.4
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: follow_owner
+  instruction_zh: 跟随主人并保持0.5到1.0米距离
+  instruction_en: Follow the owner while maintaining 0.5-1.0 m distance.
+  max_duration_s: 60
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.12
+    random_yaw_deg: 10
+  success:
+    all:
+    - type: distance_xy_range
+      body: trunk_base
+      target: person_owner
+      min_m: 0.5
+      max_m: 1.0
+    - type: hold_condition_s
+      seconds: 3.0
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.9
+      - -2.4
+      max_xy:
+      - 2.9
+      - 2.4
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: orbit_stranger
+  instruction_zh: 绕到陌生人的侧后方并保持安全距离
+  instruction_en: Move to the side-rear of the stranger and keep a safe distance.
+  max_duration_s: 45
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.12
+    random_yaw_deg: 10
+  success:
+    all:
+    - type: relative_bearing_range
+      body: trunk_base
+      target: person_stranger
+      min_deg: 110
+      max_deg: 250
+    - type: distance_xy_range
+      body: trunk_base
+      target: person_stranger
+      min_m: 0.55
+      max_m: 1.1
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.9
+      - -2.4
+      max_xy:
+      - 2.9
+      - 2.4
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: search_ball_across_rooms
+  instruction_zh: 穿过门洞，在另一个房间找到球并靠近
+  instruction_en: Pass through the doorway, find the ball in the other room, and approach
+    it.
+  max_duration_s: 60
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.12
+    random_yaw_deg: 10
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: ball
+      distance_m: 0.4
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.9
+      - -2.4
+      max_xy:
+      - 2.9
+      - 2.4
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: go_to_beacon
+  instruction_zh: 根据语义目标前往黄色信标
+  instruction_en: Navigate to the yellow beacon.
+  max_duration_s: 45
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.12
+    random_yaw_deg: 10
+  success:
+    all:
+    - type: distance_xy_le
+      body: trunk_base
+      target: beacon_target
+      distance_m: 0.35
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.9
+      - -2.4
+      max_xy:
+      - 2.9
+      - 2.4
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: retrieve_ball
+  instruction_zh: 找到球并用踢或推把它带到绿色区域
+  instruction_en: Find the ball and kick/push it into the green zone.
+  max_duration_s: 75
+  success_hold_s: 0.75
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.12
+    random_yaw_deg: 10
+  success:
+    all:
+    - type: body_in_zone
+      body: ball
+      zone: zone_green
+      radius_m: 0.3
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.9
+      - -2.4
+      max_xy:
+      - 2.9
+      - 2.4
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0

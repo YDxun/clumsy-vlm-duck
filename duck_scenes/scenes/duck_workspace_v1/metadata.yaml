@@ -1,0 +1,211 @@
+scene_id: duck_workspace_v1
+version: 1
+priority: 1
+units:
+  length: m
+  angle: rad
+  mass: kg
+coordinate_frame:
+  up: +Z
+  robot_default_forward: +X
+robot:
+  body_name: trunk_base
+  root_body: trunk_base
+  controlled_joints: &id001
+  - left_hip_yaw
+  - left_hip_roll
+  - left_hip_pitch
+  - left_knee
+  - left_ankle
+  - neck_pitch
+  - head_pitch
+  - head_yaw
+  - head_roll
+  - right_hip_yaw
+  - right_hip_roll
+  - right_hip_pitch
+  - right_knee
+  - right_ankle
+  head_joints:
+  - neck_pitch
+  - head_pitch
+  - head_yaw
+  - head_roll
+  actuators: *id001
+  nominal_height_m: 0.25
+  footprint_radius_m: 0.15
+  initial_keyframe: initial
+  spawn:
+    xy:
+    - 0.0
+    - 0.0
+    z_m: 0.125
+    yaw_deg: 0
+workspace:
+  floor_size_m:
+  - 4.0
+  - 4.0
+  walkable_inner_size_m:
+  - 3.9
+  - 3.9
+  wall_height_m: 0.1
+platform_low:
+  body: world
+  geom: platform_low
+  size_m:
+  - 1.5
+  - 1.0
+  - 0.06
+  top_z_m: 0.06
+  center_xyz:
+  - -0.85
+  - 0.95
+  - 0.03
+objects:
+- id: main_ball
+  body: ball
+  kind: sphere
+  radius_m: 0.035
+  mass_kg: 0.015
+  dynamic: true
+  default_pose:
+  - 0.9
+  - 0.0
+  - 0.035
+  semantic_labels:
+  - orange ball
+  - 橙色球
+  - ball
+  affordances:
+  - approach
+  - kick
+  - push
+- id: blue_ball
+  body: obj_ball_blue
+  kind: sphere
+  radius_m: 0.03
+  mass_kg: 0.012
+  dynamic: true
+  default_pose:
+  - 0.55
+  - 0.72
+  - 0.03
+  semantic_labels:
+  - blue ball
+  - 蓝色球
+  affordances:
+  - approach
+  - kick
+  - distractor
+- id: red_cube
+  body: obj_cube_red
+  kind: box
+  half_size_m:
+  - 0.03
+  - 0.03
+  - 0.03
+  mass_kg: 0.05
+  dynamic: true
+  default_pose:
+  - 0.7
+  - -0.65
+  - 0.03
+  semantic_labels:
+  - red cube
+  - 红色方块
+  affordances:
+  - approach
+  - push
+- id: blue_cube
+  body: obj_cube_blue
+  kind: box
+  half_size_m:
+  - 0.03
+  - 0.03
+  - 0.03
+  mass_kg: 0.05
+  dynamic: true
+  default_pose:
+  - 1.15
+  - 0.65
+  - 0.03
+  semantic_labels:
+  - blue cube
+  - 蓝色方块
+  affordances:
+  - approach
+  - push
+  - distractor
+- id: green_cup
+  body: obj_cup_green
+  kind: cylinder
+  radius_m: 0.03
+  height_m: 0.07
+  mass_kg: 0.03
+  dynamic: true
+  default_pose:
+  - 0.2
+  - -1.1
+  - 0.035
+  semantic_labels:
+  - green low cylinder
+  - 绿色矮圆柱
+  affordances:
+  - approach
+  - push
+zones:
+- id: green_zone
+  body: zone_green
+  radius_m: 0.35
+  center:
+  - 1.35
+  - -1.15
+  - 0.003
+- id: blue_zone
+  body: zone_blue
+  radius_m: 0.3
+  center:
+  - -0.85
+  - -1.15
+  - 0.003
+beacon:
+  body: beacon_target
+  center:
+  - 1.55
+  - 1.25
+  - 0.2
+  radius_m: 0.025
+  half_height_m: 0.2
+cameras:
+- name: cam_overhead
+  pos:
+  - 0
+  - 0
+  - 5.2
+  xyaxes:
+  - 1
+  - 0
+  - 0
+  - 0
+  - 1
+  - 0
+  fovy: 50
+  resolution:
+  - 640
+  - 480
+- name: cam_workspace
+  pos:
+  - -3.4
+  - -3.4
+  - 3.0
+  xyaxes:
+  - 0.707
+  - -0.707
+  - 0
+  - 0.37
+  - 0.37
+  - 0.852
+  fovy: 52
+  resolution:
+  - 640
+  - 480

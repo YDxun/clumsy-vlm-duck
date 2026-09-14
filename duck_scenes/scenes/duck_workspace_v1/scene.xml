@@ -1,0 +1,31 @@
+<mujoco model="duck_workspace_v1">
+  <compiler angle="radian"/>
+  <include file="../../robot/robot_allcollisions.xml"/>
+  <option timestep="0.005" gravity="0 0 -9.81"/>
+  <visual><headlight diffuse="0.8 0.8 0.85" ambient="0.45 0.5 0.6"/><rgba haze="0.04 0.05 0.08 1"/></visual>
+  <default><geom solref="0.01 1" solimp="0.9 0.95 0.001" friction="0.8 0.02 0.03"/></default>
+  <worldbody>
+    <light pos="2 2 3" dir="-0.5 -0.4 -1" directional="true"/>
+    <geom name="floor" type="plane" size="2 2 0.05" rgba="0.14 0.16 0.18 1"/>
+    <geom name="wall_north" type="box" pos="0 1.975 0.05" size="2 0.025 0.05" rgba="0.35 0.35 0.38 1"/>
+    <geom name="wall_south" type="box" pos="0 -1.975 0.05" size="2 0.025 0.05" rgba="0.35 0.35 0.38 1"/>
+    <geom name="wall_east" type="box" pos="1.975 0 0.05" size="0.025 1.95 0.05" rgba="0.35 0.35 0.38 1"/>
+    <geom name="wall_west" type="box" pos="-1.975 0 0.05" size="0.025 1.95 0.05" rgba="0.35 0.35 0.38 1"/>
+    <geom name="platform_low" type="box" pos="-0.85 0.95 0.03" size="0.75 0.50 0.03" rgba="0.35 0.30 0.24 1" friction="1.0 0.02 0.03"/>
+    <body name="ball" pos="0.90 0.0 0.035"><freejoint name="ball_free"/><geom name="geom_ball" type="sphere" size="0.035" mass="0.015" rgba="1 0.45 0.05 1"/></body>
+    <body name="obj_ball_blue" pos="0.55 0.72 0.030"><freejoint name="obj_ball_blue_free"/><geom name="geom_ball_blue" type="sphere" size="0.030" mass="0.012" rgba="0.1 0.35 1 1"/></body>
+    <body name="obj_cube_red" pos="0.70 -0.65 0.030"><freejoint name="obj_cube_red_free"/><geom name="geom_cube_red" type="box" size="0.03 0.03 0.03" mass="0.050" rgba="0.9 0.08 0.08 1"/></body>
+    <body name="obj_cube_blue" pos="1.15 0.65 0.030"><freejoint name="obj_cube_blue_free"/><geom name="geom_cube_blue" type="box" size="0.03 0.03 0.03" mass="0.050" rgba="0.08 0.25 0.95 1"/></body>
+    <body name="obj_cup_green" pos="0.20 -1.10 0.035"><freejoint name="obj_cup_green_free"/><geom name="geom_cup_green" type="cylinder" size="0.03 0.035" mass="0.030" rgba="0.1 0.8 0.25 1"/></body>
+    <body name="zone_green" pos="1.35 -1.15 0.003"><geom name="geom_zone_green" type="cylinder" size="0.35 0.003" rgba="0.1 0.8 0.2 0.28" contype="0" conaffinity="0"/></body>
+    <body name="zone_blue" pos="-0.85 -1.15 0.003"><geom name="geom_zone_blue" type="cylinder" size="0.30 0.003" rgba="0.1 0.3 1 0.25" contype="0" conaffinity="0"/></body>
+    <body name="beacon_target" pos="1.55 1.25 0.20"><geom name="geom_beacon" type="cylinder" size="0.025 0.20" rgba="1 0.85 0.1 0.9" contype="0" conaffinity="0"/></body>
+    <geom name="obstacle_1" type="box" pos="0.55 1.15 0.10" size="0.10 0.20 0.10" rgba="0.55 0.55 0.58 1"/>
+    <geom name="obstacle_2" type="cylinder" pos="1.10 1.05 0.12" size="0.10 0.12" rgba="0.45 0.45 0.48 1"/>
+    <camera name="cam_overhead" pos="0 0 5.2" xyaxes="1 0 0 0 1 0" fovy="50"/>
+    <camera name="cam_workspace" pos="-3.4 -3.4 3.0" xyaxes="0.707 -0.707 0 0.37 0.37 0.852" fovy="52"/>
+  </worldbody>
+  <keyframe>
+    <key name="initial" qpos="0 0 0.125 1 0 0 0 0 -0.0873 -0.4579 -0.0049 0.453 0.3491 0.3491 0 0 0 0.0873 0.4579 0.0049 -0.453 0.9 0 0.035 1 0 0 0 0.55 0.72 0.03 1 0 0 0 0.7 -0.65 0.03 1 0 0 0 1.15 0.65 0.03 1 0 0 0 0.2 -1.1 0.035 1 0 0 0" ctrl="0 -0.0873 -0.4579 -0.0049 0.453 0.3491 0.3491 0 0 0 0.0873 0.4579 0.0049 -0.453"/>
+  </keyframe>
+</mujoco>

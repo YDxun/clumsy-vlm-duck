@@ -1,0 +1,619 @@
+{
+  "scene": "duck_workspace_v1",
+  "scene_xml": "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\scene.xml",
+  "model": {
+    "nq": 56,
+    "nv": 50,
+    "nu": 14,
+    "nbody": 24,
+    "ngeom": 97,
+    "njnt": 20
+  },
+  "passed": true,
+  "checks": [
+    {
+      "name": "XML_LOAD",
+      "passed": true,
+      "skipped": false,
+      "detail": "MuJoCo model compiled",
+      "metrics": {
+        "nq": 56,
+        "nv": 50,
+        "nu": 14,
+        "nbody": 24,
+        "ngeom": 97,
+        "njnt": 20
+      }
+    },
+    {
+      "name": "unique_name_audit",
+      "passed": true,
+      "skipped": false,
+      "detail": "duplicates={}",
+      "metrics": {}
+    },
+    {
+      "name": "ROBOT_COMPATIBILITY",
+      "passed": true,
+      "skipped": false,
+      "detail": "root=trunk_base joints=14/14 head=4/4 actuators=14",
+      "metrics": {
+        "root_body": "trunk_base",
+        "controlled_joints": [
+          "left_hip_yaw",
+          "left_hip_roll",
+          "left_hip_pitch",
+          "left_knee",
+          "left_ankle",
+          "neck_pitch",
+          "head_pitch",
+          "head_yaw",
+          "head_roll",
+          "right_hip_yaw",
+          "right_hip_roll",
+          "right_hip_pitch",
+          "right_knee",
+          "right_ankle"
+        ],
+        "head_joints": [
+          "head_pitch",
+          "head_roll",
+          "head_yaw",
+          "neck_pitch"
+        ],
+        "actuators": 14,
+        "ctrl_ranges": [
+          [
+            -10.0,
+            10.0
+          ],
+          [
+            -10.0,
+            10.0
+          ],
+          [
+            -10.0,
+            10.0
+          ]
+        ],
+        "min_robot_geom_z": 0.007817637801251354,
+        "initial_scene_overlap": []
+      }
+    },
+    {
+      "name": "INITIAL_CONTACT",
+      "passed": true,
+      "skipped": false,
+      "detail": "free bodies rest on collision surfaces without penetration",
+      "metrics": {
+        "bodies": [
+          {
+            "body": "ball",
+            "xyz": [
+              0.9,
+              0.0,
+              0.035
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          },
+          {
+            "body": "obj_ball_blue",
+            "xyz": [
+              0.55,
+              0.72,
+              0.03
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          },
+          {
+            "body": "obj_cube_red",
+            "xyz": [
+              0.7,
+              -0.65,
+              0.03
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          },
+          {
+            "body": "obj_cube_blue",
+            "xyz": [
+              1.15,
+              0.65,
+              0.03
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          },
+          {
+            "body": "obj_cup_green",
+            "xyz": [
+              0.2,
+              -1.1,
+              0.035
+            ],
+            "bottom_z": 0.0,
+            "freejoint": true
+          }
+        ],
+        "contacts": [
+          {
+            "geom1": "floor",
+            "geom2": "geom_ball",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_ball_blue",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_red",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_red",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_red",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_red",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_blue",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_blue",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_blue",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cube_blue",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cup_green",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cup_green",
+            "dist": 0.0
+          },
+          {
+            "geom1": "floor",
+            "geom2": "geom_cup_green",
+            "dist": 0.0
+          }
+        ],
+        "anomalies": []
+      }
+    },
+    {
+      "name": "STATIC_GEOM_OVERLAP",
+      "passed": true,
+      "skipped": false,
+      "detail": "no unintended positive-volume static intersections",
+      "metrics": {
+        "overlaps": []
+      }
+    },
+    {
+      "name": "PHYSICS_2000_STEPS_NO_COMMAND",
+      "passed": true,
+      "skipped": false,
+      "detail": "finite passive physics; biped may fall without a balance policy",
+      "metrics": {
+        "steps": 2000,
+        "simulated_time_s": 10.0,
+        "nan_detected": 0,
+        "final_upright": 0.13518707360045412,
+        "max_qvel": 6.607575764536509,
+        "max_qacc": 795.1027828565161,
+        "min_contact_dist": -0.00526601720770839,
+        "max_contacts": 26,
+        "free_body_motion_m": {
+          "ball": 5.7133404510543995e-05,
+          "obj_ball_blue": 5.7133404519699865e-05,
+          "obj_cube_red": 1.4336921910246636e-05,
+          "obj_cube_blue": 1.433692191022583e-05,
+          "obj_cup_green": 1.911216300205798e-05
+        }
+      }
+    },
+    {
+      "name": "PHYSICS_2000_STEPS_STAND",
+      "passed": true,
+      "skipped": false,
+      "detail": "2000 substeps driven by project alpha_stand ONNX",
+      "metrics": {
+        "steps": 2000,
+        "simulated_time_s": 10.0,
+        "nan_detected": 0,
+        "min_upright": 0.999965706158414,
+        "max_root_move_m": 0.00028325233740516815,
+        "max_qvel": 0.007701107550898997,
+        "max_qacc": 1.7319965011579406
+      }
+    },
+    {
+      "name": "WORKSPACE_GEOMETRY",
+      "passed": true,
+      "skipped": false,
+      "detail": "4x4 floor, 0.06 platform top, 70 mm/15 g ball, 60 mm/50 g cube",
+      "metrics": {
+        "floor_size": [
+          4.0,
+          4.0
+        ],
+        "platform_size": [
+          1.5,
+          1.0,
+          0.06
+        ],
+        "platform_top_z": 0.06,
+        "ball_radius": 0.035,
+        "ball_mass": 0.015,
+        "cube_size": [
+          0.06,
+          0.06,
+          0.06
+        ],
+        "cube_mass": 0.05
+      }
+    },
+    {
+      "name": "METADATA_CONSISTENCY",
+      "passed": true,
+      "skipped": false,
+      "detail": "metadata checked against expanded model",
+      "metrics": {
+        "problems": []
+      }
+    },
+    {
+      "name": "TASK_REFERENCE_CHECK",
+      "passed": true,
+      "skipped": false,
+      "detail": "all task identifiers resolve",
+      "metrics": {
+        "references": [
+          "ball",
+          "beacon_target",
+          "obj_cube_blue",
+          "obj_cube_red",
+          "trunk_base",
+          "zone_blue",
+          "zone_green"
+        ],
+        "missing": []
+      }
+    },
+    {
+      "name": "SUCCESS_EVALUATOR",
+      "passed": true,
+      "skipped": false,
+      "detail": "success conditions exercised with mutated MjData",
+      "metrics": {
+        "checks": {
+          "walk_to_ball": true,
+          "kick_ball_to_zone": true,
+          "push_red_cube": true
+        }
+      }
+    },
+    {
+      "name": "FAILURE_EVALUATOR",
+      "passed": true,
+      "skipped": false,
+      "detail": "fallen duration, outside bounds and timeout evaluated",
+      "metrics": {
+        "fallen_early": false,
+        "fallen_late": true,
+        "outside": true,
+        "timeout_reason": "timeout"
+      }
+    },
+    {
+      "name": "CAM_OVERHEAD",
+      "passed": true,
+      "skipped": false,
+      "detail": "rendered F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\overhead.png",
+      "metrics": {
+        "mean": 66.99806966145833,
+        "std": 68.18848510120354,
+        "targets_uv": {
+          "trunk_base": [
+            320.0,
+            240.0
+          ],
+          "ball": [
+            409.68315485577244,
+            240.0
+          ]
+        }
+      }
+    },
+    {
+      "name": "CAM_WORKSPACE",
+      "passed": true,
+      "skipped": false,
+      "detail": "rendered F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\workspace.png",
+      "metrics": {
+        "mean": 22.501293402777776,
+        "std": 40.26022410554241,
+        "targets_uv": {
+          "trunk_base": [
+            319.99999999999994,
+            234.1577435841028
+          ],
+          "ball": [
+            370.57971109908476,
+            214.33900151186182
+          ]
+        }
+      }
+    },
+    {
+      "name": "DUCKVLM_CAMERA",
+      "passed": true,
+      "skipped": false,
+      "detail": "actual duck_play/local-sim head camera; ball visibility measured by render differencing",
+      "metrics": {
+        "visible_blob": {
+          "front": {
+            "pixels": 646,
+            "centroid": [
+              160.82,
+              98.57
+            ]
+          },
+          "left": {
+            "pixels": 771,
+            "centroid": [
+              46.26,
+              103.83
+            ]
+          },
+          "right": {
+            "pixels": 775,
+            "centroid": [
+              275.71,
+              104.21
+            ]
+          },
+          "turn": {
+            "pixels": 0,
+            "centroid": null
+          }
+        },
+        "image_mean": {
+          "front": 53.42,
+          "left": 53.11,
+          "right": 57.74,
+          "turn": 62.34
+        },
+        "outputs": [
+          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\duckvlm_front.png",
+          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\duckvlm_left.png",
+          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\duckvlm_right.png"
+        ]
+      }
+    },
+    {
+      "name": "LOCOMOTION",
+      "passed": true,
+      "skipped": false,
+      "detail": "project alpha_walking/alpha_stand controls executed",
+      "metrics": {
+        "outcomes": {
+          "forward": {
+            "disp_xy": [
+              0.2115073906932562,
+              -0.0008977569734248649
+            ],
+            "distance": 0.21150929597881282,
+            "dyaw_deg": -8.197999648623465,
+            "upright": 0.9982924567102984,
+            "speed": 0.17669162616199005
+          },
+          "backward": {
+            "disp_xy": [
+              -0.6053824911296467,
+              0.00018245770922374068
+            ],
+            "distance": 0.6053825186253337,
+            "dyaw_deg": -9.936487580316111,
+            "upright": 0.9995961016376249,
+            "speed": 0.3047423206559098
+          },
+          "turn_left": {
+            "disp_xy": [
+              0.0019968848283365183,
+              0.014992512956321296
+            ],
+            "distance": 0.015124913016711946,
+            "dyaw_deg": 26.784386380145236,
+            "upright": 0.9981856258782741,
+            "speed": 0.03274795370450651
+          },
+          "turn_right": {
+            "disp_xy": [
+              0.0014757399480489677,
+              0.0019745035920281776
+            ],
+            "distance": 0.0024650502691019806,
+            "dyaw_deg": -14.661184888413487,
+            "upright": 0.9998582959153448,
+            "speed": 0.0011654964888220384
+          },
+          "stop": {
+            "disp_xy": [
+              9.180826655758988e-05,
+              -4.300398273136942e-05
+            ],
+            "distance": 0.00010138096635497906,
+            "dyaw_deg": 0.08805990023381582,
+            "upright": 0.9999686827249497,
+            "speed": 0.0010403624689212937
+          }
+        }
+      }
+    },
+    {
+      "name": "OBJECT_INTERACTION",
+      "passed": true,
+      "skipped": false,
+      "detail": "walking approach plus existing ONNX kick policy",
+      "metrics": {
+        "natural_workspace_approach": true,
+        "approach_steps": 402,
+        "robot_before": [
+          0.0030813354480998716,
+          -7.343745774899498e-05,
+          0.11637236396590057
+        ],
+        "robot_after": [
+          0.8715155229861404,
+          0.017845785487955318,
+          0.11628575101926208
+        ],
+        "ball_before": [
+          0.9,
+          0.0,
+          0.034942866596026544
+        ],
+        "ball_after": [
+          1.1011486234189916,
+          -0.36696278511716834,
+          0.034942866596600224
+        ],
+        "ball_displacement_m": 0.4184763486319201,
+        "attempts": [
+          {
+            "attempt": 1,
+            "kick": "ball_kick_left",
+            "ball_displacement_m": 7.527312106958561e-14,
+            "ball_xyz": [
+              0.9,
+              0.0,
+              0.03494286659610182
+            ]
+          },
+          {
+            "attempt": 2,
+            "kick": "ball_kick_left",
+            "ball_displacement_m": 0.4184763486319201,
+            "ball_xyz": [
+              1.1011486234189916,
+              -0.36696278511716834,
+              0.034942866596600224
+            ]
+          }
+        ],
+        "max_qvel": 12.499977896351492
+      }
+    },
+    {
+      "name": "MINIMAL_CLOSED_LOOP",
+      "passed": true,
+      "skipped": false,
+      "detail": "spawn -> visual ball -> approach -> <0.4 m -> stop",
+      "metrics": {
+        "approach_steps": 223,
+        "start_xyz": [
+          0.0030813354480998716,
+          -7.343745774899498e-05,
+          0.11637236396590057
+        ],
+        "end_xyz": [
+          0.5272602301222372,
+          0.016451216762500127,
+          0.11625939426186419
+        ],
+        "ball_xyz": [
+          0.9,
+          0.0,
+          0.034942866595953075
+        ],
+        "final_distance_m": 0.3731026381325846,
+        "final_speed_mps": 0.0007861965794024089,
+        "final_upright": 0.9999727122243695
+      }
+    },
+    {
+      "name": "DOORWAY_TRAVERSAL",
+      "passed": true,
+      "skipped": true,
+      "detail": "home-only acceptance test",
+      "metrics": {}
+    },
+    {
+      "name": "FRICTION_TRAVERSAL",
+      "passed": true,
+      "skipped": true,
+      "detail": "obstacle-only acceptance test",
+      "metrics": {}
+    },
+    {
+      "name": "CUBE_INTERACTION",
+      "passed": true,
+      "skipped": false,
+      "detail": "robot walked into and pushed the 60 mm/50 g cube",
+      "metrics": {
+        "approach_steps": 279,
+        "cube_before": [
+          0.6999999999978471,
+          -0.6499999999983122,
+          0.029985663078089756
+        ],
+        "cube_after": [
+          0.7227723546736166,
+          -0.650753240996857,
+          0.029987212477242748
+        ],
+        "cube_displacement_m": 0.02278480879624766,
+        "robot_after": [
+          0.6638804967613698,
+          -0.6410111017159082,
+          0.11601805029720011
+        ],
+        "upright": 0.9999649905274017
+      }
+    },
+    {
+      "name": "DUCKVLM_DECISION_DRY_RUN",
+      "passed": true,
+      "skipped": false,
+      "detail": "RGB/state reached the existing DuckVLM decision client",
+      "metrics": {
+        "target_visible": true,
+        "target_range_m": 0.9044888059008801,
+        "target_bearing_deg": 0.0,
+        "token": "FWD",
+        "image_bytes": 3419,
+        "note": "external model inference not claimed without credentials"
+      }
+    }
+  ],
+  "elapsed_s": 3.003519599966239
+}

@@ -38,6 +38,21 @@ Each plugin is backed by one boolean and is inert when disabled:
 - `fall_recovery`: reset after a fall (simulation safety).
 - `human_takeover`: a human token preempts the next model decision and is recorded.
 
+## Verified scene tasks
+
+`duck_scenes/` contains `duck_workspace_v1`, `duck_home_v1`, and
+`duck_obstacle_v1`. When the task text matches an entry in `tasks.yaml`, the
+runtime attaches the scene pack's execution-based evaluator. Success and failure
+are then computed from MuJoCo truth, not only from the model's `DONE` token.
+
+List scenes: `GET /api/scenes`.
+
+Switch with:
+
+```bash
+printf 'duck_obstacle_v1\n' > /root/microduck_sim/.duck_scene_id
+python3 /root/microduck_sim/service.py restart
+```
 ## Browser cockpit
 
 After integrating `duck_vlm.host` into `sim_server.py`, open `/vlm`. The page

@@ -1,0 +1,9 @@
+--- a/duck_play/perception/camera.py
++++ b/duck_play/perception/camera.py
+@@
+-        right = np.cross(ref, f)
++        # MuJoCo camera image right is forward x world-up, not world-up x forward.
++        right = np.cross(f, ref)
+@@
+-        up = np.cross(f, right)
++        up = np.cross(right, f)
