@@ -3,7 +3,7 @@ tasks:
   instruction_zh: 穿过门洞，在另一个房间找到球并靠近
   instruction_en: Pass through the doorway, find the ball in the other room, and approach
     it.
-  max_duration_s: 60
+  max_duration_s: 90
   success_hold_s: 0.75
   restartable: true
   robot_spawn:

@@ -293,6 +293,18 @@ class ExplorePlugin(DuckPlugin):
                 self._hold -= 1
         return self._hold
 
+    def _resync_near(self, xy: tuple[float, float]) -> None:
+        """Point the tour at the remaining waypoint closest to a given spot."""
+        best_i: int | None = None
+        best_d: float | None = None
+        for i in range(self.index, len(self.waypoints)):
+            wx, wy = self.waypoints[i]
+            d = math.hypot(wx - xy[0], wy - xy[1])
+            if best_d is None or d < best_d:
+                best_d, best_i = d, i
+        if best_i is not None:
+            self.index = best_i
+
     def _pending(self, state: DuckState) -> tuple[float, float] | None:
         i = self.index
         while i < len(self.waypoints):
@@ -372,6 +384,10 @@ class ExplorePlugin(DuckPlugin):
             if self._swept < self.SEARCH_SWEEP_STEPS:
                 self._swept += 1
                 return self._sweep_dir
+            # The sweep failed, so the goal is still somewhere around here. Resume
+            # the tour from the cell nearest this sighting, otherwise the next cell
+            # can be back across the room and the duck walks away from its best lead.
+            self._resync_near((sx, sy))
             self._searching = False
         while self.index < len(self.waypoints):
             wx, wy = self.waypoints[self.index]
@@ -645,6 +661,9 @@ class PluginSuite:
     config: PluginConfig = field(default_factory=PluginConfig)
     plugins: list[DuckPlugin] = field(default_factory=list)
     by_name: dict[str, DuckPlugin] = field(default_factory=dict)
+    # Hysteresis state for the reactive layer; must stay last so build()'s
+    # positional construction keeps assigning by_name correctly.
+    _last_react: str | None = None
 
     @classmethod
     def build(cls, config: PluginConfig | None = None) -> "PluginSuite":
@@ -724,18 +743,35 @@ class PluginSuite:
         if rng is None:
             return None
         bearing = state.target_bearing_rad
+        off_axis = abs(bearing)
+        # Hysteresis: once walking, tolerate drift out to the frame edge before
+        # turning again; once turning, finish the turn before walking. Without it
+        # the duck parked at the old 20 deg threshold and alternated
+        # TURN_L/TURN_R for dozens of steps while barely advancing.
+        prev = self._last_react
+        if prev == "FWD":
+            walk_limit = 0.60
+        elif prev in ("TURN_L", "TURN_R"):
+            walk_limit = 0.22
+        else:
+            walk_limit = 0.35
+        aligned = off_axis <= walk_limit
         if rng >= 0.45:
-            if abs(bearing) < 0.35:
-                return "FWD"
-            return "TURN_L" if bearing > 0 else "TURN_R"
-        # Final approach band (0.20~0.45 m): still unambiguous when we are
-        # squarely on the target, and each VLM round-trip here costs more than
-        # the step it would order. Kick/push tasks keep their own stance planner.
-        if rng < 0.20 or abs(bearing) > 0.30:
+            action = "FWD" if aligned else ("TURN_L" if bearing > 0 else "TURN_R")
+            self._last_react = action
+            return action
+        if rng < 0.20:
+            # final approach / kicking is the model's call
             return None
-        return "FWD"
+        # 0.20~0.45 m: one short step is still unambiguous when squarely on axis,
+        # and a VLM round-trip here costs more than the step it would order.
+        if off_axis <= 0.35:
+            self._last_react = "FWD"
+            return "FWD"
+        return None
 
     def reset(self) -> None:
+        self._last_react = None
         for plugin in self.plugins:
             plugin.reset()
 

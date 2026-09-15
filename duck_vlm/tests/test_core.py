@@ -435,6 +435,16 @@ class ReactiveBandTest(unittest.TestCase):
         suite = self._suite()
         self.assertIsNone(suite.reactive_directive(self._obs(0.32, 0.60)))
 
+    def test_hysteresis_stops_turn_walk_oscillation(self):
+        suite = self._suite()
+        # first call at 0.45 rad -> turn
+        self.assertEqual(suite.reactive_directive(self._obs(1.0, 0.45)), "TURN_L")
+        # small correction should NOT immediately flip to walking
+        self.assertEqual(suite.reactive_directive(self._obs(1.0, 0.28)), "TURN_L")
+        # once well aligned it walks and keeps walking through the dead band
+        self.assertEqual(suite.reactive_directive(self._obs(1.0, 0.20)), "FWD")
+        self.assertEqual(suite.reactive_directive(self._obs(1.0, 0.45)), "FWD")
+
     def test_pose_task_is_not_second_guessed(self):
         suite = self._suite()
         # walk_turn_stop needs a heading; walking at the ball would break it
@@ -475,6 +485,18 @@ class LocalSearchTest(unittest.TestCase):
         self.assertTrue(p.status()["searching"], "local search should have engaged")
         self.assertIn(out, ("TURN_L", "TURN_R"),
                       "should turn back toward the last sighting, not walk to (5,5)")
+
+    def test_resumes_the_tour_near_the_sighting(self):
+        p = ExplorePlugin(True)
+        # tour: a far NW cell first, then a cell right next to the sighting
+        p.set_waypoints([(-4.0, 4.0), (1.6, 0.3)])
+        p.resolve_token("TURN_L", self._obs(1.0, 0.0, 0, True), {})
+        for step in range(1, 14):
+            p.resolve_token("FWD", self._obs(2.5, 0.0, step, False), {})
+        for i in range(p.SEARCH_SWEEP_STEPS + 1):
+            p.resolve_token("FWD", self._obs(1.0, 0.0, 20 + i, False), {})
+        self.assertEqual(p.index, 1, "should re-enter the tour at the nearby cell")
+        self.assertEqual(p.status()["searching"], False)
 
     def test_sweeps_then_resumes_the_tour(self):
         p = ExplorePlugin(True)

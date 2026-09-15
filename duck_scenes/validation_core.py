@@ -131,6 +131,12 @@ class TaskEvaluator:
             e=abs((math.degrees(self.yaw(n["body"]))-float(n["yaw_deg"])+180)%360-180); return e<=float(n["yaw_tolerance_deg"])
         if t=="fallen_for_s":
             up=float(quat_rotate(self.quat(n["body"]),np.array([0,0,1.]))[2]); return self.timer(("fall",id(n)),up<.5,float(n["seconds"]),dt)
+        if t=="ever_fallen":
+            # Latches once the body has actually been on the ground, so a recovery
+            # task cannot be satisfied by simply standing still from the start.
+            key=("everfell",id(n)); up=float(quat_rotate(self.quat(n["body"]),np.array([0,0,1.]))[2])
+            if up<float(n.get("max_upright",0.5)): self.timers[key]=1.0
+            return self.timers.get(key,0.0)>=0.5
         if t=="outside_bounds": return float(np.linalg.norm(self.pos(n.get("body","trunk_base"))[:2]))>float(n["radius_m"])
         if t=="outside_bounds_aabb":
             xy=self.pos(n.get("body","trunk_base"))[:2]; return bool(np.any(xy<np.asarray(n["min_xy"])) or np.any(xy>np.asarray(n["max_xy"])))

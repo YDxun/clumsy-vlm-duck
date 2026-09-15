@@ -80,6 +80,11 @@ tasks:
     random_yaw_deg: 8
   success:
     all:
+    # a fall must actually happen before recovery is credited; without this the
+    # task was satisfied by standing still for 2 s (it passed in a single step).
+    - type: ever_fallen
+      body: trunk_base
+      max_upright: 0.5
     - type: upright
       body: trunk_base
       min_upright: 0.75
