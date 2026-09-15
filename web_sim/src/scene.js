@@ -64,6 +64,12 @@ export class SceneIndex {
     }
     const beacon = this.metadata.beacon || {};
     add(out, beacon.body, "beacon", [beacon.body, ...(beacon.semantic_labels || [])]);
+    // 目标区域单独留一份带几何的清单：站位/推球要用它的圆心和半径
+    this.zoneList = (this.metadata.zones || []).map((z) => ({
+      name: z.body || z.id,
+      labels: [z.id, z.body, ...(z.semantic_labels || [])].filter(Boolean),
+      x: z.center?.[0] ?? 0, y: z.center?.[1] ?? 0, radius: z.radius_m ?? 0.3,
+    }));
     // 长标签在前：越具体的说法越先被匹配到
     out.sort((a, b) => norm(b[0]).length - norm(a[0]).length);
     this.entities = out;
@@ -86,6 +92,14 @@ export class SceneIndex {
   }
 
   entityNames() { return this.entities.map(([label, body, kind]) => [label, body, kind]); }
+
+  /** 句子里点名的目标区域（带坐标和半径），比如「推到绿色区域」。 */
+  zoneFor(text) {
+    for (const z of this.zoneList || []) {
+      for (const label of z.labels) if (labelInText(label, text)) return z;
+    }
+    return null;
+  }
 
   /** 句子里提到的实体，最具体的在前（同一个 body 只留一次）。 */
   scanText(text) {

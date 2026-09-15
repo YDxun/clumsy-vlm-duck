@@ -22,6 +22,7 @@ import { applyRules, reflexToken, DEFAULT_RULES } from "./rules.js";
 import { askVlm, PROVIDERS } from "./llm.js";
 import { parseToken, TOKENS, availableTokens } from "./actions.js";
 import { resolveIntent, pickTarget } from "./intent.js";
+import { StationKicker, planStation } from "./station.js";
 
 const DEG = 180 / Math.PI;
 
@@ -52,6 +53,10 @@ export class DuckAgent {
 
     this.task = { text: "(no task set)", taskId: "", target: "ball", allowed: [...TOKENS] };
     this.policies = {};             // 策略名 -> session，决定哪些技能 token 能发给模型
+    // 踢球/推球站位：见到球就算一次站位，之后由规则闭环把最后 20 cm 走完
+    this.station = new StationKicker();
+    this.stationEnabled = true;
+    this.stationZone = null;
     this.phase = "idle";            // idle | thinking | acting | finished | error
     this.records = [];
     this.history = [];              // 已执行的 token（新在前）
@@ -93,7 +98,45 @@ export class DuckAgent {
     this.minRange = null;
     this.interpreter.cancel();
     this.interpreter.resetHead();
+    this.stationZone = (this.scene && this.scene.zoneFor(taskText)) || null;
+    this.station.reset();
     return this.task;
+  }
+
+  /** 站位阶段该不该由规则接管：有目标区域 + 是操作类意图 + 开了开关。 */
+  stationApplies() {
+    return !!(this.stationEnabled && this.stationZone &&
+              ["manipulate", "approach"].includes(this.task.intent));
+  }
+
+  /**
+   * 走一步站位闭环。
+   * 球的位置**只在真的看见时**才喂进去；看不见就用锁存的计划继续走（航位推算）。
+   */
+  stationTick() {
+    // 摔倒了就先别走：躺着继续下方位移指令只会在地上蹭
+    if (this.duck.upright() < 0.55) {
+      this.station.note = "鸭子倒了，先停住（起身策略还没接入）";
+      return { cmd: [0, 0, 0], kick: false, phase: "fallen", note: this.station.note };
+    }
+    const needObs = !this.station.latched ||
+                     (this.duck.steps - (this._stationObsStep ?? -999)) > 60;
+    let ballXy = null;
+    if (needObs) {
+      this._stationObsStep = this.duck.steps;
+      const s = this.sensor.snapshot(this.task.target, this.duck.steps * 0.02);
+      if (s.targetVisible && s.targetWorldXyz) {
+        ballXy = { x: s.targetWorldXyz[0], y: s.targetWorldXyz[1] };
+        if (this.station.lastKick) {          // 刚踢过：用这一脚的真实落点标定偏角
+          const bias = this.station.calibrate(ballXy);
+          if (bias !== null) {
+            this.lastNote = `标定踢球偏角：${(bias * 180 / Math.PI).toFixed(0)}°（原 ${(-33).toFixed(0)}°）`;
+            this._stationBias = bias;
+          }
+        }
+      }
+    }
+    return this.station.tick({ duckPose: this.duck.pose, ballXy, zone: this.stationZone });
   }
 
   /** 任务进度 verbalization：用真实单位报出还差多远、航向差多少。 */
@@ -251,6 +294,13 @@ export class DuckAgent {
         if (this.onRecord) this.onRecord(this.currentRecord);
       }
       this.currentRecord = null;
+      // 踢完一脚后重开站位：球被踢到哪了要用新观测重算，没进区域就再来一脚
+      if (this.history[0] === "KICK_R" || this.history[0] === "KICK_L") {
+        const attempts = this.stationKicks || 0;
+        this.station.reset();
+        this._stationObsStep = -999;
+        this.lastNote = `第 ${attempts} 脚踢完，重新站位`;
+      }
       if (this.stepIndex >= this.config.maxSteps) {
         this.phase = "finished";
         this.lastNote = `达到 max_steps=${this.config.maxSteps}`;
@@ -263,6 +313,36 @@ export class DuckAgent {
 
     // idle：停够 decisionEveryS 之后再开新一轮决策
     this._idleS += dt;
+
+    // 站位优先：操作类任务的最后 20 cm 交给规则闭环，别让 VLM 用 0.07 m 的步子去对 1.5 cm 的容差
+    if (this.stationApplies()) {
+      const st = this.stationTick();
+      this.lastNote = st.note;
+      if (st.done) {
+        this.phase = "finished";
+        this.lastNote = `任务完成：${st.note}`;
+        return { cmd: [0, 0, 0], headDelta: null, phase: "finished" };
+      }
+      if (st.kick) {
+        this.stationKicks = (this.stationKicks || 0) + 1;
+        const res = this.interpreter.start(this.station.foot === "right" ? "KICK_R" : "KICK_L");
+        if (!res.done) {
+          this.phase = "acting";
+          this.currentRecord = {
+            stepIndex: this.stepIndex, simTime: this.duck.steps * 0.02, task: this.task.text,
+            taskId: this.task.taskId, target: this.task.target, state: null, prompt: "",
+            image: "", proposed: res.token, token: res.token, source: "station",
+            raw: st.note, latencyMs: null, rules: ["station_kick"], note: st.note, error: null,
+          };
+        }
+        return { cmd: res.command, headDelta: null, phase: "acting" };
+      }
+      if (st.phase !== "no-plan") {
+        return { cmd: st.cmd, headDelta: null, phase: "station:" + st.phase };
+      }
+      // no-plan：还没看见球 → 掉回正常决策（模型/规则去找球）
+    }
+
     if (this._idleS >= this.config.decisionEveryS && !this._pending) {
       this._idleS = 0;
       this.phase = "thinking";
