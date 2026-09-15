@@ -25,3 +25,4 @@ web_sim/node_modules/
 web_sim/assets/
 web_sim/tools/_*.mjs
 web_sim/artifacts/_*
+.tmp-robogo-*

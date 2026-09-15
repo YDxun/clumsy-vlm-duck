@@ -364,9 +364,12 @@ cd web_sim; npm install
 # 1) 摊平场景（内联 include、复制用到的 mesh、写入力矩限幅）
 F:\anaconda_ydx\python.exe tools\flatten_scene.py duck_workspace_v1
 
-# 2) 准备策略（本仓库不跟踪 ONNX）
-copy ..\research\artifacts\official_policies\alpha_stand.onnx  assets\policies\
+# 2) 准备策略（本仓库不跟踪 ONNX，见 policies.json 里的清单）
+copy ..\research\artifacts\official_policies\alpha_stand.onnx   assets\policies\
 copy ..\research\artifacts\official_policies\alpha_walking.onnx assets\policies\
+copy ..\research\artifacts\official_policies\ball_kick_*.onnx   assets\policies\
+# 其余技能策略（roulade / happy_hop / alpha_sitstand / alpha_standup / alpha_ground_pick）
+# 在训练机 microduck/policies/ 下，scp 回来即可；缺哪个，对应 token 会自动从词表里摘掉。
 
 # 3) 四层验证，从便宜到贵
 node tools\verify_wasm.mjs      duck_workspace_v1
