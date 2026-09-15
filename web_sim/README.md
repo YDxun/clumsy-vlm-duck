@@ -4,7 +4,10 @@
 > 访客自带 API key——而不是把 quackd 的代码搬过来。本目录是我们自己的实现，
 > 并把「哪些地方必须为浏览器改、为什么」记录在这里。
 
-**当前进度：① 渲染器 ✅ ｜ ② 最小决策层 ✅ ｜ ③ 页面 ⬜**
+**当前进度：① 渲染器 ✅ ｜ ② 最小决策层 ✅ ｜ ③ 页面 ✅**
+
+四层验证当前状态：`verify_wasm` PASS ｜ `verify_render` 14/14 ｜ `test_agent` 87/87 ｜
+`verify_agent` 37/37 ｜ `verify_page` 30/30
 
 ## 一、可行性（已实测，不是推测）
 
@@ -96,6 +99,7 @@ web_sim/
 │   ├── verify_render.mjs   # 真 Chrome：14 项像素级断言
 │   ├── test_agent.mjs      # 纯 Node：决策层 87 项单元测试
 │   ├── verify_agent.mjs    # 真 Chrome：33 项闭环断言（含真 HTTP + 跨域）
+│   ├── verify_page.mjs     # 真 Chrome：30 项页面断言（点按钮、填 key、下载拼图）
 │   ├── mock_llm.mjs        # 假 OpenAI 端点，验证 BYO key 链路
 │   └── serve.mjs           # 极简静态服务器（.wasm/.onnx 的 MIME 很关键）
 ├── artifacts/              # verify_render 出的四视角截图
@@ -120,15 +124,36 @@ node tools\verify_policy.mjs    alpha_walking 8 0.3 0
 node tools\verify_render.mjs                     # 真 Chrome，出截图
 node tools\test_agent.mjs                        # 决策层单测，秒级
 node tools\verify_agent.mjs                      # 真 Chrome 跑闭环，约 4 分钟
+node tools\verify_page.mjs                       # 真 Chrome 点页面，约 1 分钟
 
 # 4) 交互体验
 node tools\serve.mjs            # 打开 http://127.0.0.1:8787/
 ```
 
-## 六、还没做的（诚实清单）
+## 六、③ 页面：访客看到什么
 
-- **③ 页面**：任务下拉（直接列场景包里的 task id）、BYO key 输入框、动作日志（带每步的图）、
-  三视角录像。现在决策层只能从 `window.__sim` 里调用，**还没有正经 UI**。
+打开就是三个区域：
+
+| 区域 | 内容 |
+| --- | --- |
+| 左：画面 | 四种视角（全景 / 跟随 / 上帝视角 / 鸭子眼）+ 三视角拼图下载 |
+| 右上：任务与决策 | 任务下拉（**直接列场景包的 task id**，不是让人手打）、自由文本输入框、规则/VLM 模式切换、BYO key 表单、开始/暂停/复位/停止 |
+| 右下：状态与日志 | 实时状态（阶段/决策次数/位置/朝向/直立度/最近距离）+ **决策日志卡片**（每张卡片就是模型当时看到的那张图 + 它选的 token + 规则有没有接管） |
+
+几个刻意的取舍：
+
+- **任务用下拉而不是输入框**：输入对不上 task id 就没法评分，是之前踩过的坑；
+  想随手写就用「（用下面那句话）」选项，`scene.js` 会把「去红方块」解析成 `obj_cube_red`。
+- **key 只在切到 VLM 模式时出现**，`type=password`，存本机 localStorage，
+  请求直接从浏览器发往所选厂商，我们的服务器不参与。
+- **决策日志一定带图**：不然「模型为什么选了 TURN_L」永远说不清。
+- **三视角拼图**：一键把「全景 / 全场俯视 / 鸭子眼」拼成一张 PNG，
+  汇报和录 demo 用同一张图，不用再多开一个窗口。
+
+## 七、还没做的（诚实清单）
+
+- **三视角录像还没有视频**：现在只能下载一张拼图 PNG。要录完整过程，
+  下一步用 `canvas.captureStream()` + `MediaRecorder` 把拼接画面录成 WebM。
 - **技能 token 还没进最小集**：KICK_L/KICK_R/SIT/STAND_UP/ROLL/DANCE 需要各自的 ONNX
   状态机（`_dev_cockpit/local_kick.py` 那一套），所以「踢球进区域」「摔倒起身」这类任务
   目前跑不了。词表放大的代价是 zero-shot 选择变难，值得单独一步做。
@@ -144,7 +169,7 @@ node tools\serve.mjs            # 打开 http://127.0.0.1:8787/
 - **资产许可**：mesh 的许可仍需与上游确认；结论明确前建议照 quackd 的做法
   **不打包、运行时从上游固定 commit 拉取**。
 
-## 七、② 决策层：做了什么、怎么验证的
+## 八、② 决策层：做了什么、怎么验证的
 
 ### 8 个 token（`src/actions.js`）
 

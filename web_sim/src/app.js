@@ -13,6 +13,7 @@ import { DuckSim, configureOrt, CONTROL_DT } from "./duck.js";
 import { DuckView } from "./view.js";
 import { SceneIndex } from "./scene.js";
 import { DuckAgent } from "./agent.js";
+import { PROVIDERS } from "./llm.js";
 
 const SCENE = "duck_workspace_v1";
 const POLICY = "alpha_walking";
@@ -115,6 +116,8 @@ async function loop() {
     $("s-head").textContent = `${((duck.pose.heading * 180) / Math.PI).toFixed(1)}°`;
     $("s-up").textContent = duck.upright().toFixed(3);
     $("s-ball").textContent = `${duck.ballPose.x.toFixed(2)}, ${duck.ballPose.y.toFixed(2)}`;
+    $("s-decisions").textContent = String(agent ? agent.records.length : 0);
+    if (agent && agent.minRange != null) $("s-minrange").textContent = `${agent.minRange.toFixed(2)} m`;
   }
 }
 
@@ -154,6 +157,7 @@ async function boot_() {
     boot.style.display = "none";
     ready = true;
     window.__duckReady = true;
+    setupUi();
     loop();
   } catch (e) {
     window.__duckError = String((e && e.stack) || e);
@@ -173,6 +177,7 @@ for (const b of document.querySelectorAll("[data-mode]")) {
 for (const b of document.querySelectorAll("[data-cmd]")) {
   b.onclick = () => {
     if (!duck) return;
+    driver.agent = false;          // 手动遥控优先：先把手动模式抢回来
     control.running = true;
     control.cmd = { stand: [0, 0, 0], fwd: [0.3, 0, 0], turn: [0, 0, 0.8] }[b.dataset.cmd];
     log(`[指令] ${b.textContent} -> vx=${control.cmd[0]} vy=${control.cmd[1]} wz=${control.cmd[2]}`);
@@ -183,6 +188,174 @@ $("pause").onclick = (e) => {
   e.target.textContent = control.running ? "暂停" : "继续";
   e.target.classList.toggle("on", !control.running);
 };
+
+// ---------------------------------------------------------------- 页面 UI
+const LS_KEY = "duckvlm.config.v1";
+
+/** 决策日志卡片：把「模型看到的图 + 它选了什么 + 规则有没有改它」摊开给用户看。 */
+function renderRecord(rec) {
+  const box = $("decisions");
+  if (box.firstChild && box.firstChild.className === "hint") box.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card " + (rec.source === "vlm" ? "vlm" : "rule") + (rec.rules?.length ? " overridden" : "");
+  const bits = [];
+  if (rec.provider) bits.push(`${rec.provider}/${rec.model}`);
+  if (rec.latencyMs != null) bits.push(`${rec.latencyMs.toFixed(0)} ms`);
+  if (rec.rules?.length) bits.push(`规则接管：${rec.rules.join(", ")}`);
+  if (rec.note && rec.note !== "ok") bits.push(rec.note);
+  card.innerHTML = `
+    <div class="head">
+      <span>#${rec.stepIndex} <span class="tok">${rec.token}</span>${
+        rec.proposed && rec.proposed !== rec.token ? ` <span class="warn">（模型原本给 ${rec.proposed}）</span>` : ""
+      }</span>
+      <span class="meta">${rec.source === "vlm" ? "VLM" : "规则"}</span>
+    </div>
+    ${rec.image ? `<img alt="这一步模型看到的画面" src="${rec.image}">` : ""}
+    <div class="meta">${bits.join(" · ") || "—"}</div>`;
+  box.prepend(card);
+  while (box.children.length > 12) box.lastChild.remove();
+}
+
+function setupUi() {
+  // ---- 任务下拉：直接列场景包里的 task id，避免“输入对不上就没评分”
+  const sel = $("task-select");
+  const tasks = sceneIndex.listTasks();
+  sel.innerHTML = "";
+  for (const t of tasks) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = `${t.id} — ${t.instruction_zh || t.instruction_en || ""}`;
+    sel.appendChild(opt);
+  }
+  const free = document.createElement("option");
+  free.value = "__free__";
+  free.textContent = "（用下面那句话）";
+  sel.appendChild(free);
+
+  const applyTask = () => {
+    const isFree = sel.value === "__free__";
+    const text = isFree ? $("task-text").value.trim() : "";
+    const task = agent.setTask({ taskId: isFree ? "" : sel.value, text });
+    $("task-info").textContent = `目标 = ${task.target} · 意图 = ${task.intent} · 允许动作 ${task.allowed.length} 个`;
+    $("s-target").textContent = task.target;
+    $("s-minrange").textContent = "—";
+    $("decisions").innerHTML = '<div class="hint">还没有决策。点“开始”。</div>';
+    log(`[任务] ${task.taskId || "(自由文本)"} ${task.text} → target=${task.target} intent=${task.intent}`);
+    return task;
+  };
+  sel.onchange = () => {
+    if (sel.value !== "__free__") {
+      const t = sceneIndex.task(sel.value);
+      $("task-text").value = "";
+      log(`[选择任务] ${sel.value}：${t?.instruction_zh || t?.instruction_en || ""}`);
+    }
+    applyTask();
+  };
+  $("task-text").onchange = () => { sel.value = "__free__"; applyTask(); };
+  applyTask();
+
+  // ---- 决策模式 + BYO key（只存本机）
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { return {}; } })();
+  const prov = $("llm-provider");
+  for (const [id, p] of Object.entries(PROVIDERS)) {
+    const o = document.createElement("option");
+    o.value = id; o.textContent = p.label;
+    prov.appendChild(o);
+  }
+  const fillProvider = (id, keepValues = false) => {
+    const p = PROVIDERS[id];
+    prov.value = id;
+    if (!keepValues) {
+      $("llm-base").value = saved.baseUrl || p.defaultBaseUrl;
+      $("llm-model").value = saved.model || p.defaultModel;
+    }
+    $("llm-hint").textContent = p.hint;
+  };
+  fillProvider(saved.provider || "openai", true);
+  if (saved.baseUrl) $("llm-base").value = saved.baseUrl;
+  if (saved.model) $("llm-model").value = saved.model;
+  if (saved.key) $("llm-key").value = saved.key;
+  prov.onchange = () => { fillProvider(prov.value); syncAgentConfig(); };
+
+  const syncAgentConfig = () => {
+    Object.assign(agent.config, {
+      provider: prov.value,
+      baseUrl: $("llm-base").value.trim(),
+      model: $("llm-model").value.trim(),
+      apiKey: $("llm-key").value.trim(),
+    });
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      provider: prov.value, baseUrl: $("llm-base").value.trim(),
+      model: $("llm-model").value.trim(), key: $("llm-key").value.trim(),
+    }));
+  };
+  for (const el of [$("llm-base"), $("llm-model"), $("llm-key")]) el.onchange = syncAgentConfig;
+
+  for (const b of document.querySelectorAll("[data-decmode]")) {
+    b.onclick = () => {
+      for (const o of document.querySelectorAll("[data-decmode]")) o.classList.toggle("on", o === b);
+      agent.config.mode = b.dataset.decmode;
+      $("llm-box").hidden = b.dataset.decmode !== "llm";
+      if (b.dataset.decmode === "llm") syncAgentConfig();
+      log(`[模式] ${b.textContent}`);
+    };
+  }
+
+  // ---- 运行控制
+  agent.onRecord = renderRecord;
+  $("run").onclick = () => {
+    syncAgentConfig();
+    const task = applyTask();
+    if (agent.config.mode === "llm" && !agent.config.apiKey &&
+        !/localhost|127\.0\.0\.1/.test(agent.config.baseUrl)) {
+      log("[错误] VLM 模式需要 API key（只存在你本机，直接发给厂商）");
+      return;
+    }
+    driver.agent = true;
+    control.running = true;
+    $("pause").textContent = "暂停";
+    agent.phase = "idle";
+    log(`[开始] ${task.taskId || task.text}，${agent.config.mode === "llm" ? agent.config.model : "规则模式"}`);
+  };
+  $("stop").onclick = () => { driver.agent = false; agent.phase = "finished"; log("[停止] 决策已停止，鸭子原地站住"); };
+  $("reset").onclick = () => {
+    driver.agent = false;
+    duck.reset();
+    agent.interpreter.resetHead();
+    agent.records.length = 0;
+    $("decisions").innerHTML = '<div class="hint">已复位。</div>';
+    $("s-minrange").textContent = "—";
+    view.frame();
+    log("[复位] 鸭子与物体回到初始位姿");
+  };
+
+  // ---- 三视角拼图：一眼看到「鸭子眼里的世界 / 它在哪 / 全场」
+  $("shot").onclick = async () => {
+    const modes = [["workspace", "全景"], ["overhead", "全场俯视"], ["duck", "鸭子眼（VLM 视角）"]];
+    const W = 480, H = 360;
+    const out = document.createElement("canvas");
+    out.width = W * 2 + 12; out.height = H * 2 + 12 + 22;
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = "#0b1118"; ctx.fillRect(0, 0, out.width, out.height);
+    ctx.font = "14px 'Microsoft YaHei', system-ui, sans-serif";
+    for (let i = 0; i < modes.length; i++) {
+      const [m, label] = modes[i];
+      view.setMode(m); view.frame();
+      await new Promise((r) => requestAnimationFrame(r));
+      const x = 4 + (i % 2) * (W + 4), y = 22 + Math.floor(i / 2) * (H + 4);
+      ctx.drawImage($("canvas"), 0, 0, $("canvas").width, $("canvas").height, x, y, W, H);
+      ctx.fillStyle = "#7fd1ff"; ctx.fillText(label, x + 6, y - 6);
+    }
+    ctx.fillStyle = "#8b9bad";
+    ctx.fillText(`DuckVLM · 任务：${agent.task.text} · 目标：${agent.task.target} · ${agent.config.mode === "llm" ? agent.config.model : "规则模式"}`,
+                 8, out.height - 8);
+    const a = document.createElement("a");
+    a.download = `duckvlm_${Date.now()}.png`;
+    a.href = out.toDataURL("image/png");
+    a.click();
+    log("[截图] 三视角拼图已下载");
+  };
+}
 
 // ---------------------------------------------------------------- 测试钩子
 window.__duckReady = false;
