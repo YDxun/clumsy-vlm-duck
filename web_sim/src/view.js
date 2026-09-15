@@ -18,6 +18,9 @@
  *   - 相机支持四种模式：workspace（场景自带的 3/4 全景 cam_workspace）、overhead（正上方全场
  *     cam_overhead）、follow（第三人称跟随，我们的轨道参数）、duck（鸭子第一人称，逐字复刻
  *     Python 的 render_headcam）。
+ *   - 再加一个 free 模式：鼠标左键拖拽旋转、滚轮缩放、右键拖拽平移（three.js OrbitControls）。
+ *     在 workspace / overhead / follow 下滚一下或者拖一下，会自动切到 free 并从当前机位接着走，
+ *     这是「想凑近看鸭子到底在干什么」时最顺手的路径。
  *
  * 相机数值的来源很重要：workspace/overhead 两个是**从模型里读** `cam_pos/cam_quat/cam_fovy`，
  * 不是把数字抄进代码——场景一改，视角自动跟着改。
@@ -36,10 +39,11 @@ export class DuckView {
    * @param {object} opts.THREE      three.js 命名空间（注入，避免写死 CDN 或 npm 路径）
    * @param {object} opts.duck       DuckSim 实例（需要 .model / .data / .pose / .headPose()）
    */
-  constructor({ canvas, THREE, duck }) {
+  constructor({ canvas, THREE, duck, OrbitControls = null }) {
     this.THREE = THREE;
     this.canvas = canvas;
     this.duck = duck;
+    this.OrbitControls = OrbitControls;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
@@ -63,7 +67,34 @@ export class DuckView {
     this._cams = {};
 
     this.meshes = [];
+    this._initControls(canvas);
     this.build();
+  }
+
+  /**
+   * OrbitControls 从 three 的 examples 里来。
+   * 注意 importmap 要写 `three/addons/` → `node_modules/three/examples/jsm/`，
+   * 只映射 `three/` 是不够的（npm 包里的目录叫 examples/jsm，不叫 addons）。
+   */
+  _initControls(canvas) {
+    const Ctor = this.OrbitControls;
+    if (!Ctor || !canvas) { this.controls = null; return; }
+    this.controls = new Ctor(this.camera, canvas);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.screenSpacePanning = false;
+    this.controls.minDistance = 0.35;
+    this.controls.maxDistance = 20;
+    this.controls.maxPolarAngle = Math.PI * 0.495;   // 不让相机钻到地面以下
+    this.controls.enabled = false;
+    // 用户在固定机位下动鼠标 = 想自己看：切到 free，从当前机位接着操作。
+    const takeOver = () => {
+      if (this.mode === "duck") return;              // 鸭子第一人称不接管
+      if (this.mode !== "free") this.setMode("free", { fromCurrent: true });
+    };
+    canvas.addEventListener("pointerdown", (e) => { if (e.button === 0 || e.button === 2) takeOver(); });
+    canvas.addEventListener("wheel", takeOver, { passive: true });
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
   build() {
@@ -138,7 +169,32 @@ export class DuckView {
     return g;
   }
 
-  setMode(mode) { this.mode = mode; }
+  /**
+   * @param {string} mode workspace | overhead | follow | duck | free
+   * @param {{fromCurrent?:boolean}} opts free 模式下从当前机位接管（而不是跳到默认机位）
+   */
+  setMode(mode, { fromCurrent = false } = {}) {
+    const prev = this.mode;
+    this.mode = mode;
+    if (!this.controls) return;
+    this.controls.enabled = mode === "free";
+    if (mode === "free") {
+      if (fromCurrent && prev !== "free") {
+        // 从当前机位接管：保持相机位置与朝向，只把轨道中心放到鸭子附近
+        const p = this.duck.pose;
+        const dir = new this.THREE.Vector3();
+        this.camera.getWorldDirection(dir);
+        const dist = Math.max(0.6, this.camera.position.distanceTo(
+          new this.THREE.Vector3(p.x, 0.15, -p.y)));
+        this.controls.target.copy(this.camera.position).addScaledVector(dir, dist * 0.6);
+      } else if (prev !== "free") {
+        const p = this.duck.pose;
+        this.controls.target.set(p.x, 0.12, -p.y);
+        this.camera.position.set(p.x + 1.1, 0.75, -p.y + 1.1);
+      }
+      this.controls.update();
+    }
+  }
 
   /** 把一组 MuJoCo 相机参数（世界坐标）装到 three.js 相机上。 */
   applyCamera({ pos, dir, up, fovy }) {
@@ -183,6 +239,10 @@ export class DuckView {
 
   placeCamera() {
     const T = this.THREE;
+    if (this.mode === "free") {
+      if (this.controls) this.controls.update();
+      return;
+    }
     if (this.mode === "duck") {
       // 头摄：基向量直接取 DuckSim.headCamBasis()，与状态传感器用的是同一份数学，
       // 杜绝“画面里有球、状态却说看不见”这种前后矛盾。

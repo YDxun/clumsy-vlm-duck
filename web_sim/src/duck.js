@@ -21,6 +21,48 @@ export const NJ = 14, OBS_DIM = 61;
 export const HEAD_JOINTS = ["neck_pitch", "head_pitch", "head_yaw", "head_roll"];
 
 /**
+ * 步态地板与达成率 —— **本仓库实测值**，和 quackd 公开的常数互相印证。
+ *
+ * 在 3 秒定速测试里量出来的（`tools/_probe_gait.mjs`）：
+ *
+ *   指令      实际线速度   实际角速度   达成率
+ *   前进 0.10     0.002        —         2%     ← 基本原地抖动
+ *   前进 0.30     0.125        —        42%
+ *   前进 0.40     0.171        —        43%
+ *   右转 0.80       —        -0.056      7%     ← 「原地转没用」的真相
+ *   右转 1.10       —        -0.083      8%
+ *   右转 1.15       —        -0.703     61%     ← 拐点：跨过去才真的转
+ *   右转 1.50       —        -0.940     63%     ← 我们 TURN token 用的值
+ *   右转 2.00       —        -0.940     47%     ← 物理转速饱和在 0.94 rad/s，再大是浪费
+ *
+ * 也就是说：走路策略有个**步态地板**，低于它的指令会被策略吃掉（腿在动，身体不走），
+ * 高于地板的指令也只能拿到约 42% 的达成率。quackd 的 `GAIT_FLOOR` +
+ * `ACHIEVED_FRACTION = 0.42` 测出来是同一回事，两边独立复现。
+ *
+ * 处理办法照 quackd：低于地板时把**整条 twist 一起**抬到地板（不是逐轴抬），
+ * 这样「转 0.8」会变成「转 1.0」并且真的转起来，而不是原地抖。
+ */
+export const GAIT_FLOOR = { vx: 0.22, vy: 0.30, wz: 1.15 };
+export const ACHIEVED_FRACTION = 0.42;
+export const CMD_MAX = { vx: 0.40, vy: 0.30, wz: 1.50 };
+
+/** 把一条速度指令抬到步态地板之上；全零指令保持全零。 */
+export function normalizeTwist(cmd) {
+  const [vx, vy, wz] = [cmd[0] || 0, cmd[1] || 0, cmd[2] || 0];
+  if (vx === 0 && vy === 0 && wz === 0) return [0, 0, 0];
+  // 各轴按自己的地板算「离地板还有多远」，取最大的那个缩放量，整条 twist 一起放大
+  let scale = 1;
+  if (vx !== 0) scale = Math.max(scale, GAIT_FLOOR.vx / Math.abs(vx));
+  if (vy !== 0) scale = Math.max(scale, GAIT_FLOOR.vy / Math.abs(vy));
+  if (wz !== 0) scale = Math.max(scale, GAIT_FLOOR.wz / Math.abs(wz));
+  return [
+    Math.max(-CMD_MAX.vx, Math.min(CMD_MAX.vx, vx * scale)),
+    Math.max(-CMD_MAX.vy, Math.min(CMD_MAX.vy, vy * scale)),
+    Math.max(-CMD_MAX.wz, Math.min(CMD_MAX.wz, wz * scale)),
+  ];
+}
+
+/**
  * onnxruntime-web 的运行环境设置。浏览器里必须调用一次：
  *   - `wasmPaths` 指向 dist/ 目录（`ort.min.mjs` 是“外部 wasm”版本，运行时才去取 .wasm）；
  *   - `numThreads = 1`：多线程需要 SharedArrayBuffer（要求 COOP/COEP 响应头），
@@ -318,7 +360,10 @@ export class DuckSim {
    *        d.ctrl[head_idx] = DEFAULT_POSE[head_idx] + delta
    */
   async stepAsync(cmd = [0, 0, 0], headDelta = null) {
-    const obs = this.buildObs(cmd);
+    // 低于步态地板的指令先抬到地板，否则鸭子只会原地抖腿（见 GAIT_FLOOR 的注释）
+    const twist = normalizeTwist(cmd);
+    this.lastTwist = twist;
+    const obs = this.buildObs(twist);
     const out = await this.policy.run({ [this.policyIn]: new ort.Tensor("float32", obs, [1, OBS_DIM]) });
     const action = out[this.policyOut].data;
     this.lastAction.set(action);

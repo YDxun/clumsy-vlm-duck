@@ -21,6 +21,7 @@
   "imports": {
     "three": "./node_modules/three/build/three.module.js",
     "three/": "./node_modules/three/",
+    "three/addons/": "./node_modules/three/examples/jsm/",
     "@mujoco/mujoco": "./node_modules/@mujoco/mujoco/mujoco.js",
     "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.min.mjs"
   }
@@ -39,6 +40,8 @@
          font-variant-numeric: tabular-nums; pointer-events: none; }
   #hud b { color: var(--accent); font-weight: 600; }
   #viewbar { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+  #viewhint { position: absolute; left: 14px; bottom: 48px; font-size: 11px; color: var(--dim);
+              pointer-events: none; text-shadow: 0 1px 3px #000; }
   aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 14px; }
   h1 { font-size: 15px; margin: 0 0 2px; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
@@ -85,8 +88,10 @@
       <button data-mode="follow" class="on">跟随</button>
       <button data-mode="overhead">上帝视角</button>
       <button data-mode="duck">鸭子眼</button>
+      <button data-mode="free">自由视角</button>
       <button id="shot">三视角拼图</button>
     </div>
+    <div id="viewhint">滚轮缩放 · 左键拖拽旋转 · 右键拖拽平移（任意视角下操作会自动切到自由视角）</div>
     <div id="boot"><div>
       <div style="font-size:16px">正在加载 MuJoCo WASM 与场景…</div>
       <div class="sub" id="boot-msg">首次加载约 30 MB（含 20 MB 网格），之后走缓存</div>
@@ -138,6 +143,7 @@
       <dt>直立度</dt><dd id="s-up">—</dd>
       <dt>目标</dt><dd id="s-target">—</dd>
       <dt>最近距离</dt><dd id="s-minrange">—</dd>
+      <dt>实际速度指令</dt><dd id="s-twist">—</dd>
       <dt>场景</dt><dd id="s-scene">—</dd>
       <dt>策略</dt><dd id="s-policy">—</dd>
       <dt>球位置</dt><dd id="s-ball">—</dd>
@@ -147,11 +153,16 @@
     <div id="decisions"><div class="hint">还没有决策。选个任务，点“开始”。</div></div>
 
     <h2>手动遥控</h2>
-    <div class="row">
-      <button data-cmd="stand">站立</button>
-      <button data-cmd="fwd">前进 0.3</button>
-      <button data-cmd="turn">原地转 0.8</button>
+    <div class="row" id="manual-bar">
+      <button data-cmd="FWD">前进 1 步</button>
+      <button data-cmd="BACK">后退 1 步</button>
+      <button data-cmd="TURN_L">左转</button>
+      <button data-cmd="TURN_R">右转</button>
+      <button data-cmd="LOOK_DOWN">低头</button>
+      <button data-cmd="HEAD_CENTER">抬头</button>
+      <button data-cmd="STOP">停</button>
     </div>
+    <div class="hint">和 VLM 用的是同一套动作 token；按钮下发的是「走一步」而不是「一直走」。</div>
 
     <h2>运行日志</h2>
     <div id="log">就绪后这里显示加载与决策信息。</div>

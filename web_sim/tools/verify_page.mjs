@@ -139,11 +139,71 @@ async function main() {
 
   // ---------------------------------------------------------------- 视角
   console.log("\n== 视角与三视角拼图 ==");
-  for (const m of ["workspace", "overhead", "duck", "follow"]) {
+  for (const m of ["workspace", "overhead", "duck", "follow", "free"]) {
     await page.click(`[data-mode="${m}"]`);
     const mode = await page.evaluate(() => window.__sim.view.mode);
     check(`切到「${m}」`, mode === m, mode);
   }
+  const orbit = await page.evaluate(() => {
+    const v = window.__sim.view;
+    if (!v.controls) return { has: false };
+    const d0 = v.camera.position.distanceTo(v.controls.target);
+    v.camera.position.sub(v.controls.target).multiplyScalar(0.5).add(v.controls.target);  // 等价于滚轮缩放
+    v.controls.update(); v.frame();
+    const d1 = v.camera.position.distanceTo(v.controls.target);
+    v.controls.target.add({ x: 0.3, y: 0, z: 0.2 }); v.controls.update(); v.frame();  // 等价于平移
+    return { has: true, zoomed: d0 > 0 && Math.abs(d1 - d0 / 2) < 1e-6,
+             target: [v.controls.target.x, v.controls.target.y, v.controls.target.z],
+             enabled: v.controls.enabled };
+  });
+  check("自由视角装了轨道控制器", orbit.has === true);
+  check("滚轮缩放生效", orbit.zoomed === true);
+  check("右键平移生效（改轨道中心）", orbit.target?.[0] > 0.25, JSON.stringify(orbit.target));
+  const takeover = await page.evaluate(() => {
+    const s = window.__sim, v = s.view;
+    v.setMode("workspace"); v.frame();
+    // 模拟用户在固定机位上动鼠标：应当自动切到 free 并从当前机位接管
+    document.getElementById("canvas").dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
+    return { mode: v.mode, controlsEnabled: v.controls.enabled };
+  });
+  check("在固定机位拖动会自动切到自由视角", takeover.mode === "free" && takeover.controlsEnabled === true,
+        JSON.stringify(takeover));
+
+  // ---------------------------------------------------------------- 手动按钮
+  console.log("\n== 手动按钮：一步就是一步（曾是“一直走到墙上”）==");
+  // 手动 token 走的是页面主循环，所以用真实点击 + 等待来测
+  await page.evaluate(() => { window.__sim.pause(); window.__sim.reset(); });
+  const beforeFwd = await page.evaluate(() => ({ ...window.__sim.duck.pose }));
+  await page.click('[data-cmd="FWD"]');
+  await page.evaluate(() => window.__sim.resume());
+  await page.waitForTimeout(2500);
+  const afterFwd = await page.evaluate(() => ({ ...window.__sim.duck.pose, phase: window.__sim.agent.phase }));
+  const fwdDist = Math.hypot(afterFwd.x - beforeFwd.x, afterFwd.y - beforeFwd.y);
+  check("前进 1 步只走一小段（0.03~0.25 m，不是走到墙）", fwdDist > 0.03 && fwdDist < 0.25,
+        `${fwdDist.toFixed(3)} m`);
+
+  const beforeTurn = await page.evaluate(() => ({ ...window.__sim.duck.pose }));
+  await page.click('[data-cmd="TURN_R"]');
+  await page.waitForTimeout(2500);
+  const afterTurn = await page.evaluate(() => ({ ...window.__sim.duck.pose }));
+  let dHead = afterTurn.heading - beforeTurn.heading;
+  while (dHead > Math.PI) dHead -= 2 * Math.PI;
+  while (dHead < -Math.PI) dHead += 2 * Math.PI;
+  check("右转 1 步真的转了（> 15°）", Math.abs(dHead) > 15 * Math.PI / 180,
+        `${(dHead * 180 / Math.PI).toFixed(1)}°（以前下发 0.8 rad/s 只有 8% 达成率，几乎不动）`);
+
+  const floor = await page.evaluate(async () => {
+    const s = window.__sim, duck = s.duck;
+    // 亚地板指令会被抬到地板：0.8 -> 1.15 才有实际效果
+    const before = { ...duck.pose };
+    s.reset();
+    duck.lastTwist = null;
+    await duck.stepAsync([0, 0, 0.8]);
+    const normalized = duck.lastTwist.slice();
+    return { normalized, before };
+  });
+  check("低于步态地板的指令会被抬到地板", Math.abs(floor.normalized[2] - 1.15) < 1e-6,
+        `下发 wz=0.80 -> 实际 ${floor.normalized[2]}`);
   try {
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 15000 }),

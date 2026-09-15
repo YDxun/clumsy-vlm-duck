@@ -9,11 +9,14 @@
  * （headless Chrome 里做像素级断言，而不是靠肉眼看截图）。
  */
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { DuckSim, configureOrt, CONTROL_DT } from "./duck.js";
 import { DuckView } from "./view.js";
 import { SceneIndex } from "./scene.js";
 import { DuckAgent } from "./agent.js";
 import { PROVIDERS } from "./llm.js";
+import { ActionInterpreter } from "./interpreter.js";
+import { ACTION_SPECS } from "./actions.js";
 
 const SCENE = "duck_workspace_v1";
 const POLICY = "alpha_walking";
@@ -31,6 +34,7 @@ function log(msg) {
 let duck = null, view = null, sceneIndex = null, agent = null, ready = false;
 const control = { running: true, cmd: [0, 0, 0] };
 const driver = { agent: false };      // true = 由决策层下发指令，false = 手动按钮
+const manualIt = new ActionInterpreter();   // 手动按钮也走同一个解释器：按 token 走，不按速度走
 
 // ---------------------------------------------------------------- 像素工具
 // 在页面内部分析画面。把 Uint8ClampedArray 整体搬过 CDP 太慢也没必要，
@@ -98,6 +102,9 @@ async function loop() {
           const out = agent.tick(CONTROL_DT);
           await duck.stepAsync(out.cmd, out.headDelta);
           $("s-phase").textContent = out.phase;
+        } else if (manualIt.busy) {
+          const out = manualIt.tick(CONTROL_DT);
+          await duck.stepAsync(out.command, manualIt.headOverride());
         } else {
           await duck.stepAsync(control.cmd);
         }
@@ -118,6 +125,9 @@ async function loop() {
     $("s-ball").textContent = `${duck.ballPose.x.toFixed(2)}, ${duck.ballPose.y.toFixed(2)}`;
     $("s-decisions").textContent = String(agent ? agent.records.length : 0);
     if (agent && agent.minRange != null) $("s-minrange").textContent = `${agent.minRange.toFixed(2)} m`;
+    if (duck.lastTwist) {
+      $("s-twist").textContent = duck.lastTwist.map((v) => v.toFixed(2)).join(", ");
+    }
   }
 }
 
@@ -138,7 +148,7 @@ async function boot_() {
     await duck.loadPolicy(`./assets/policies/${POLICY}.onnx`);
     log(`[策略] ${POLICY}.onnx 就绪 ${(performance.now() - t1).toFixed(0)} ms`);
 
-    view = new DuckView({ canvas: $("canvas"), THREE, duck });
+    view = new DuckView({ canvas: $("canvas"), THREE, OrbitControls, duck });
     log(`[渲染] 建了 ${view.meshes.length} 个 geom mesh（共 ${duck.model.ngeom} 个）`);
 
     const metaUrl = `./assets/${SCENE}/metadata.json`;
@@ -179,8 +189,11 @@ for (const b of document.querySelectorAll("[data-cmd]")) {
     if (!duck) return;
     driver.agent = false;          // 手动遥控优先：先把手动模式抢回来
     control.running = true;
-    control.cmd = { stand: [0, 0, 0], fwd: [0.3, 0, 0], turn: [0, 0, 0.8] }[b.dataset.cmd];
-    log(`[指令] ${b.textContent} -> vx=${control.cmd[0]} vy=${control.cmd[1]} wz=${control.cmd[2]}`);
+    // 手动按钮下发的是**离散 token**，和 VLM 用的是同一套词表、同一个解释器。
+    // 以前下发的是原始速度（前进 0.3 会一直走到撞墙、原地转 0.8 低于步态地板根本不动）。
+    const token = b.dataset.cmd;
+    const res = manualIt.start(token);
+    log(`[手动] ${token} -> 速度指令 ${res.command.join(",")}（${ACTION_SPECS[token]?.durationS ?? 0}s）`);
   };
 }
 $("pause").onclick = (e) => {
