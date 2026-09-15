@@ -37,19 +37,25 @@ const toThree = (v) => [v[0], v[2], -v[1]];
  * 按 body 名给零件上色：嘴是橙的、脚是深色的、外壳是奶白的。
  * 只在浏览器渲染层生效，**不动物理、不动物流**，所以可以随时切回原始材质对比。
  */
-export const DUCK_PALETTE = {
-  beak:   { match: /jaw|beak|mouth/i,                 color: 0xe08a2e },
-  foot:   { match: /ankle|foot|toe/i,                 color: 0x2f3742 },
-  leg:    { match: /leg|hip/i,                        color: 0x6d7885 },
-  head:   { match: /neck|yaw_roll|head/i,             color: 0xf3ece0 },
-  body:   { match: /trunk|bearing|shell/i,            color: 0xe7e1d3 },
-};
+/**
+ * 按**网格名**配色，比按 body 名准得多：喙（jaw）和头壳（top_head_shell）挂在
+ * 同一个 body（jaw_soft，19 个 geom）里，只按 body 名会把整个头刷成橙的。
+ * 顺序即优先级：越具体的部件写在越前面。
+ */
+export const DUCK_PALETTE = [
+  { part: "喙",     match: /^jaw$/i,                                       color: 0xe08a2e },
+  { part: "脚",     match: /sole|foot/i,                                   color: 0x2f3742 },
+  { part: "腿",     match: /^(upper_leg|leg|hip|ankle)/i,                  color: 0x7b8794 },
+  { part: "舵机",   match: /^xl330$/i,                                     color: 0x39424e },
+  { part: "电路板", match: /pcb|np_f970|robot_hat|raspberry/i,             color: 0x2f4a3d },
+  { part: "外壳",   match: /shell|trunk_base|power_support|bearing|rigidity/i, color: 0xe7e1d3 },
+  { part: "头脸",   match: /head|face|noenoeil|lens|speaker|m12|yaw_roll|neck/i, color: 0xf4eee2 },
+];
 
-/** 按 body 名选颜色；认不出来就保留场景原本的材质色。 */
-export function paletteColor(bodyName) {
-  for (const { match, color } of Object.values(DUCK_PALETTE)) {
-    if (bodyName && match.test(bodyName)) return color;
-  }
+/** 按网格名选颜色；认不出来就保留场景原本的材质色。 */
+export function paletteColor(meshName) {
+  if (!meshName) return null;
+  for (const { match, color } of DUCK_PALETTE) if (match.test(meshName)) return color;
   return null;
 }
 
@@ -152,10 +158,13 @@ export class DuckView {
       mesh.matrixAutoUpdate = false;
       this.world.add(mesh);
       const bodyName = this.bodyNames[model.geom_bodyid[g]] || "";
+      const meshName = model.geom_dataid[g] >= 0
+        ? (this.duck.mujoco.mj_id2name(model, this.duck.mujoco.mjtObj.mjOBJ_MESH.value, model.geom_dataid[g]) || "")
+        : "";
       this.meshes.push({
-        index: g, mesh, bodyName,
+        index: g, mesh, bodyName, meshName,
         rawColor: material.color.clone(),
-        accent: paletteColor(bodyName),
+        accent: paletteColor(meshName),
       });
     }
     this._buildFloorDecor();
