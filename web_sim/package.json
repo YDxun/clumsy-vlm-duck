@@ -1,0 +1,15 @@
+{
+  "name": "duck-vlm-web-sim",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "DuckVLM browser-side zero-shot simulator (adapted from the quackd architecture, our own implementation)",
+  "scripts": {
+    "verify": "node tools/verify_wasm.mjs",
+    "serve": "node tools/serve.mjs"
+  },
+  "dependencies": {
+    "@mujoco/mujoco": "^3.12.0",
+    "onnxruntime-web": "^1.29.0"
+  }
+}
