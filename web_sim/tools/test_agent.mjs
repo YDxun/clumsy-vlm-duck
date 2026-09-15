@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ACTION_SPECS, TOKENS, parseToken, tokenMenu, tokenSemantics } from "../src/actions.js";
+import { ACTION_SPECS, TOKENS, SKILL_TOKENS, availableTokens, parseToken, tokenMenu, tokenSemantics } from "../src/actions.js";
 import { ActionInterpreter } from "../src/interpreter.js";
 import { renderPrompt } from "../src/prompt.js";
 import { SceneIndex } from "../src/scene.js";
@@ -36,10 +36,15 @@ function ok(name, cond, detail = "") {
   else { failed++; console.log(`  FAIL  ${name}${detail ? "   " + detail : ""}`); }
 }
 
-console.log("\n== 1. 动作词表与解析（8 个 token）==");
-eq("token 数量正好 8", TOKENS.length, 8);
-eq("token 列表", TOKENS, ["FWD", "BACK", "TURN_L", "TURN_R", "STOP", "LOOK_DOWN", "HEAD_CENTER", "DONE"]);
-ok("词表里没有技能 token", !TOKENS.some((t) => /KICK|SIT|STAND_UP|ROLL|DANCE/.test(t)));
+console.log("\n== 1. 动作词表与解析 ==");
+const BASE8 = ["FWD", "BACK", "TURN_L", "TURN_R", "STOP", "LOOK_DOWN", "HEAD_CENTER", "DONE"];
+const NO_POLICY = availableTokens({});
+eq("基础 token 是 8 个", TOKENS.filter((t) => !SKILL_TOKENS.includes(t)), BASE8);
+eq("技能 token 6 个", SKILL_TOKENS.length, 6);
+eq("没加载策略时，发给模型的只有 8 个基础动作", NO_POLICY, BASE8);
+eq("加载翻滚+跳舞后词表多两个", availableTokens({ roulade: {}, happy_hop: {} }), [...BASE8, "ROLL", "DANCE"]);
+eq("未验证的技能（踢球）不进词表", availableTokens({ ball_kick_right: {} }), BASE8);
+eq("显式要求时才带未验证技能", availableTokens({ ball_kick_right: {} }, { includeUnverified: true }), [...BASE8, "KICK_R"]);
 eq("直接输出", parseToken("FWD", TOKENS), "FWD");
 eq("代码围栏", parseToken("```text\nTURN_L\n```", TOKENS), "TURN_L");
 eq("JSON 包裹", parseToken('{"action": "turn right"}', TOKENS), "TURN_R");
@@ -49,9 +54,9 @@ eq("中文别名（抬头）", parseToken("抬头", TOKENS), "HEAD_CENTER");
 eq("句子里的唯一 token", parseToken("I would go backward now", TOKENS), "BACK");
 eq("纯噪声", parseToken("banana", TOKENS), null);
 eq("空回复", parseToken("   ", TOKENS), null);
-eq("不在允许集里的 token", parseToken("KICK_L", TOKENS), null);
-ok("词表菜单列出 8 个", tokenMenu(TOKENS).split(",").length === 8);
-ok("语义说明逐行列出", tokenSemantics(TOKENS).split("\n").length === 8);
+eq("不在允许集里的 token", parseToken("KICK_L", NO_POLICY), null);
+ok("词表菜单列出 8 个", tokenMenu(NO_POLICY).split(",").length === 8);
+ok("语义说明逐行列出", tokenSemantics(NO_POLICY).split("\n").length === 8);
 ok("LOOK_DOWN 语义提到地面", /ground/i.test(ACTION_SPECS.LOOK_DOWN.description));
 
 console.log("\n== 2. 解释器：token -> 运动指令 ==");
@@ -91,7 +96,7 @@ console.log("\n== 3. 提示词渲染 ==");
     affordanceText: "obj_cube_red: visible at image (u=0.30, v=0.55)",
     proprioText: "proprio: head=forward", recoveryHint: "",
   };
-  const p = renderPrompt(obs, TOKENS);
+  const p = renderPrompt(obs, NO_POLICY);      // 真正会发给模型的就是这 8 个
   ok("含 TASK 段", p.includes("TASK: 去红方块"));
   ok("含目标", p.includes("TARGET: obj_cube_red"));
   ok("含本体状态", p.includes(obs.stateText));
@@ -99,7 +104,7 @@ console.log("\n== 3. 提示词渲染 ==");
   ok("含最近动作", p.includes("TURN_L, FWD"));
   ok("含 token 菜单", p.includes("AVAILABLE TOKENS:") && p.includes("LOOK_DOWN"));
   ok("含控制规则", p.includes("CONTROL RULES:"));
-  ok("不提示没有的技能", !p.includes("KICK_L") && !p.includes("STAND_UP"));
+  ok("不提示没有的技能", !p.includes("KICK_L") && !p.includes("STAND_UP") && !p.includes("ROLL"));
   ok("没有漏填的占位符", !/\{[a-z_]+\}/.test(p));
 }
 

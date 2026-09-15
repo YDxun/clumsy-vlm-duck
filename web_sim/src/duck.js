@@ -215,7 +215,24 @@ export class DuckSim {
     }
     this.policyIn = this.policy.inputNames[0];
     this.policyOut = this.policy.outputNames[0];
+    this.policyName = (url || "").split("/").pop().replace(/\.onnx$/, "") || null;
     return this.policy;
+  }
+
+  /**
+   * 热切换策略：技能 token（翻滚/跳舞/踢球…）就是这么实现的
+   * —— 切到它自己的 ONNX，跑一段，再切回走路。所有策略共用同一套 61 维观测契约，
+   * 所以任意时刻都能换人接管，不需要重置仿真。
+   */
+  setPolicy(session, name = null) {
+    if (!session) return this.policyName;
+    if (session === this.policy) { if (name) this.policyName = name; return this.policyName; }
+    this.policy = session;
+    this.policyIn = session.inputNames[0];
+    this.policyOut = session.outputNames[0];
+    this.lastAction.fill(0);            // 换策略时清掉上一步动作，别把别的策略的输出喂进去
+    if (name) this.policyName = name;
+    return this.policyName;
   }
 
   /** 单独建一个 ONNX 会话（和场景无关，可以跨场景复用）。 */

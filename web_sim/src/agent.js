@@ -20,7 +20,7 @@ import { DuckStateSensor } from "./state.js";
 import { renderPrompt } from "./prompt.js";
 import { applyRules, reflexToken, DEFAULT_RULES } from "./rules.js";
 import { askVlm, PROVIDERS } from "./llm.js";
-import { parseToken, TOKENS } from "./actions.js";
+import { parseToken, TOKENS, availableTokens } from "./actions.js";
 import { resolveIntent, pickTarget } from "./intent.js";
 
 const DEG = 180 / Math.PI;
@@ -51,6 +51,7 @@ export class DuckAgent {
     };
 
     this.task = { text: "(no task set)", taskId: "", target: "ball", allowed: [...TOKENS] };
+    this.policies = {};             // 策略名 -> session，决定哪些技能 token 能发给模型
     this.phase = "idle";            // idle | thinking | acting | finished | error
     this.records = [];
     this.history = [];              // 已执行的 token（新在前）
@@ -81,7 +82,8 @@ export class DuckAgent {
       taskId: taskId || curated?.id || "",
       target: resolvedTarget || "ball",
       intent: resolveIntent(taskId, taskText),
-      allowed: [...TOKENS],
+      // 只把「策略在、且本地实测有效」的技能发给模型（见 actions.availableTokens）
+      allowed: availableTokens(this.policies || {}),
     };
     this.history = [];
     this.stepIndex = 0;

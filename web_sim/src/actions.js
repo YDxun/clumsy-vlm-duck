@@ -50,9 +50,57 @@ export const ACTION_SPECS = {
     token: "DONE", description: "Declare the task complete and stop",
     kind: "terminal", durationS: 0, terminal: true,
   },
+
+  // ---------------- 技能 token ----------------
+  // 每个技能 = 切到自己的 ONNX 策略、跑固定时长、再切回走路。
+  // `verified` 表示「在本仓库的浏览器仿真里实测有效」。只有 verified 的才会进
+  // VLM 的候选词表 —— 没验过的动作喂给模型，只会让它学会输出一个没反应的词。
+  ROLL: {
+    token: "ROLL", description: "Run the forward-roll policy, then get back up",
+    kind: "skill", policy: "roulade", durationS: 2.8, verified: true,
+  },
+  DANCE: {
+    token: "DANCE", description: "Run the happy-hop dance policy",
+    kind: "skill", policy: "happy_hop", durationS: 2.5, verified: true,
+  },
+  // 下面四个策略文件都在仓库里、也都能被 onnxruntime-web 加载，但**从站立姿态 + 零速度指令**
+  // 跑起来看不到可见动作：Python 端靠 LocalKick 的站位/状态机（先站稳、再进动作、再恢复）才踢得中。
+  // 这里如实标成未验证：手动面板可以试，但不会进 VLM 词表。
+  KICK_L: {
+    token: "KICK_L", description: "Run the left-foot ball-kick policy (needs the duck to be lined up on the ball)",
+    kind: "skill", policy: "ball_kick_left", durationS: 1.2, verified: false,
+  },
+  KICK_R: {
+    token: "KICK_R", description: "Run the right-foot ball-kick policy (needs the duck to be lined up on the ball)",
+    kind: "skill", policy: "ball_kick_right", durationS: 1.2, verified: false,
+  },
+  SIT: {
+    token: "SIT", description: "Run the sit-stand policy, then hold",
+    kind: "skill", policy: "alpha_sitstand", durationS: 1.5, verified: false,
+  },
+  STAND_UP: {
+    token: "STAND_UP", description: "Get back up onto the feet after a fall",
+    kind: "skill", policy: "alpha_standup", durationS: 2.0, verified: false,
+  },
 };
 
 export const TOKENS = Object.keys(ACTION_SPECS);
+export const MOTION_TOKENS = TOKENS.filter((t) => ACTION_SPECS[t].kind === "motion");
+export const SKILL_TOKENS = TOKENS.filter((t) => ACTION_SPECS[t].kind === "skill");
+
+/**
+ * 该发给模型哪些 token。
+ * 规则：非技能 token 全给；技能 token 必须**策略已加载**且**本地实测有效**。
+ * 这就是 Python `available_tokens()` 的同一条原则：不许给模型一个它做不到的动作。
+ */
+export function availableTokens(policies = {}, { includeUnverified = false } = {}) {
+  return TOKENS.filter((t) => {
+    const spec = ACTION_SPECS[t];
+    if (spec.kind !== "skill") return true;
+    if (!policies[spec.policy]) return false;
+    return includeUnverified || spec.verified === true;
+  });
+}
 
 /** 托管 VLM 爱加前缀/换写法，这里把常见同义词收回来（中英都有）。 */
 export const ALIASES = {

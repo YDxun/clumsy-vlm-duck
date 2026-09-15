@@ -177,7 +177,17 @@
       <button data-cmd="HEAD_CENTER">抬头</button>
       <button data-cmd="STOP">停</button>
     </div>
+    <div class="row" id="skill-bar">
+      <button data-cmd="ROLL" class="primary">翻滚</button>
+      <button data-cmd="DANCE">跳舞</button>
+      <button data-cmd="KICK_R">右脚踢</button>
+      <button data-cmd="KICK_L">左脚踢</button>
+      <button data-cmd="SIT">坐下</button>
+      <button data-cmd="STAND_UP">起身</button>
+    </div>
     <div class="hint">和 VLM 用的是同一套动作 token；按钮下发的是「走一步」而不是「一直走」。</div>
+    <div class="hint warn">技能里只有<b>翻滚 / 跳舞</b>在本仿真实测有效，会进 VLM 词表；
+      踢球/坐下/起身能加载策略但看不到可见动作（Python 端靠站位状态机才踢得中），暂不发给模型。</div>
 
     <h2>运行日志</h2>
     <div id="log">就绪后这里显示加载与决策信息。</div>

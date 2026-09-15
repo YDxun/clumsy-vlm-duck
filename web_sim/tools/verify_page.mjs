@@ -211,12 +211,14 @@ async function main() {
     v.controls.update(); v.frame();
     const d1 = v.camera.position.distanceTo(v.controls.target);
     v.controls.target.add({ x: 0.3, y: 0, z: 0.2 }); v.controls.update(); v.frame();  // 等价于平移
-    return { has: true, zoomed: d0 > 0 && Math.abs(d1 - d0 / 2) < 1e-6,
+    // 不比较精确折半：OrbitControls 带阻尼，update() 会按当前状态微调半径
+    return { has: true, d0, d1, zoomed: d1 < d0 * 0.9,
              target: [v.controls.target.x, v.controls.target.y, v.controls.target.z],
              enabled: v.controls.enabled };
   });
   check("自由视角装了轨道控制器", orbit.has === true);
-  check("滚轮缩放生效", orbit.zoomed === true);
+  check("滚轮缩放生效（相机到轨道中心的距离变近）", orbit.zoomed === true,
+        `${orbit.d0?.toFixed(2)} -> ${orbit.d1?.toFixed(2)}`);
   check("右键平移生效（改轨道中心）", orbit.target?.[0] > 0.25, JSON.stringify(orbit.target));
   const takeover = await page.evaluate(() => {
     const s = window.__sim, v = s.view;
@@ -229,13 +231,51 @@ async function main() {
         JSON.stringify(takeover));
 
   // ---------------------------------------------------------------- 手动按钮
+  console.log("\n== 技能 token ==");
+  const menu = await page.evaluate(() => {
+    const s = window.__sim;
+    return { allowed: s.agent.task.allowed, names: Object.keys(s.duck.policies || {}),
+             skillButtons: [...document.querySelectorAll("#skill-bar [data-cmd]")].map((b) => b.dataset.cmd) };
+  });
+  check("页面把 9 个策略都装进来了", menu.names.length >= 9, menu.names.join(", "));
+  check("实测有效的技能进了 VLM 词表", menu.allowed.includes("ROLL") && menu.allowed.includes("DANCE"),
+        menu.allowed.join(","));
+  check("未验证的技能没有发给模型", !menu.allowed.includes("KICK_R") && !menu.allowed.includes("STAND_UP"),
+        menu.allowed.filter((t) => ["KICK_L", "KICK_R", "SIT", "STAND_UP"].includes(t)).join(",") || "（一个都没有，正确）");
+  check("技能按钮都摆在面板上", ["ROLL", "DANCE", "KICK_R", "SIT", "STAND_UP"].every((t) => menu.skillButtons.includes(t)),
+        menu.skillButtons.join(","));
+
+  const roll = await page.evaluate(async () => {
+    const s = window.__sim, duck = s.duck;
+    s.pause(); s.reset();
+    const it = s.agent.interpreter;
+    it.policySwitch = s.agent.interpreter.policySwitch;   // 保持页面里那份接线
+    const started = it.start("ROLL");
+    const trace = [];
+    let minUp = 9, switched = null;
+    for (let i = 0; i < 200; i++) {
+      const out = it.tick(0.02);
+      if (!switched && duck.policyName === "roulade") switched = "roulade";
+      await duck.stepAsync(out.command, it.headOverride());
+      minUp = Math.min(minUp, duck.upright());
+      if (i % 20 === 0) trace.push(+duck.upright().toFixed(2));
+      if (out.done) break;
+    }
+    return { started: !started.done, minUp: +minUp.toFixed(2), endUp: +duck.upright().toFixed(2),
+             policyAfter: duck.policyName, trace };
+  });
+  check("ROLL 真的翻过去了（upright 变负）", roll.minUp < -0.5, `最低 upright=${roll.minUp}，轨迹 ${roll.trace.join(" ")}`);
+  check("翻完自己站回来", roll.endUp > 0.9, `末态 upright=${roll.endUp}`);
+  check("技能结束后策略切回走路", roll.policyAfter === "alpha_walking", roll.policyAfter);
+
   console.log("\n== 手动按钮：一步就是一步（曾是“一直走到墙上”）==");
   // 手动 token 走的是页面主循环，所以用真实点击 + 等待来测
   await page.evaluate(() => { window.__sim.pause(); window.__sim.reset(); });
   const beforeFwd = await page.evaluate(() => ({ ...window.__sim.duck.pose }));
   await page.click('[data-cmd="FWD"]');
   await page.evaluate(() => window.__sim.resume());
-  await page.waitForTimeout(2500);
+  // 等这一 token 真的跑完，而不是等一个固定墙钟 —— 无头环境里物理循环快慢差别很大
+  await page.waitForFunction(() => window.__sim.manual && !window.__sim.manual.busy, null, { timeout: 60000 });
   const afterFwd = await page.evaluate(() => ({ ...window.__sim.duck.pose, phase: window.__sim.agent.phase }));
   const fwdDist = Math.hypot(afterFwd.x - beforeFwd.x, afterFwd.y - beforeFwd.y);
   check("前进 1 步只走一小段（0.03~0.25 m，不是走到墙）", fwdDist > 0.03 && fwdDist < 0.25,
@@ -243,7 +283,7 @@ async function main() {
 
   const beforeTurn = await page.evaluate(() => ({ ...window.__sim.duck.pose }));
   await page.click('[data-cmd="TURN_R"]');
-  await page.waitForTimeout(2500);
+  await page.waitForFunction(() => window.__sim.manual && !window.__sim.manual.busy, null, { timeout: 60000 });
   const afterTurn = await page.evaluate(() => ({ ...window.__sim.duck.pose }));
   let dHead = afterTurn.heading - beforeTurn.heading;
   while (dHead > Math.PI) dHead -= 2 * Math.PI;

@@ -36,6 +36,7 @@ let duck = null, view = null, sceneIndex = null, agent = null, ready = false;
 let manifest = null, sceneBase = ASSET_BASE;
 let activeSceneId = null;
 const policySessions = new Map();   // ONNX 会话与场景无关，换场景时复用
+const policySessionsById = {};      // 策略名 -> session，技能 token 靠它热切换
 const sceneCache = new Map();       // 场景 id -> DuckSim，换回来秒开
 const SCENE_CACHE_MAX = 3;          // 三个场景都留得住；再多就得靠 dispose() 腾地方
 const control = { running: true, cmd: [0, 0, 0] };
@@ -93,6 +94,33 @@ function stats(rec, { from = null } = {}) {
 }
 
 // ---------------------------------------------------------------- 主循环
+/**
+ * 装载 policies.json 里列出的所有策略。
+ * 缺文件的直接跳过（策略文件不进仓库，克隆下来可能只有一部分），
+ * 页面上对应的技能 token 会自动消失 —— 和 Python 的 available_tokens() 同一条原则。
+ */
+async function loadPolicies() {
+  let list = [];
+  try {
+    const res = await fetch("./policies.json");
+    if (res.ok) list = (await res.json()).policies || [];
+  } catch { /* 没有清单就只加载默认走路策略 */ }
+  const results = [];
+  for (const p of list) {
+    const url = `${ASSET_BASE}/policies/${p.file}`;
+    try {
+      const session = policySessions.get(url) || await DuckSim.createPolicySession(url);
+      policySessions.set(url, session);
+      policySessionsById[p.id] = session;
+      results.push(p.id);
+    } catch {
+      if (p.required) results.push(`${p.id}（缺失，必需）`);
+    }
+  }
+  log(`[策略] 可用 ${results.length} 个：${results.join(", ")}`);
+  return results;
+}
+
 /** 读场景清单。可以指向任意静态托管（这就是「自定义导入场景」的入口）。 */
 async function loadManifest(url = "./scenes.json") {
   const res = await fetch(url);
@@ -140,6 +168,7 @@ async function activateScene(id) {
       policySessions.set(policyUrl, await DuckSim.createPolicySession(policyUrl));
     }
     await next.loadPolicy(policyUrl, { session: policySessions.get(policyUrl) });
+    next.policies = policySessionsById;
 
     const [metadata, tasks] = await Promise.all([
       fetch(`${base}/metadata.json`).then((r) => (r.ok ? r.json() : {})),
@@ -159,6 +188,15 @@ async function activateScene(id) {
     }
     const tView = performance.now();
     agent = new DuckAgent({ duck, view, scene: idx });
+    agent.policies = policySessionsById;
+    agent.interpreter.policySwitch = (name, token) => {
+      const session = policySessionsById[name];
+      if (!session) return duck.policyName;
+      const done = duck.setPolicy(session, name);
+      if (token) log(`[技能] ${token} 接管：切到策略 ${name}`);
+      return done;
+    };
+    manualIt.policySwitch = agent.interpreter.policySwitch;
     if (prevConfig) Object.assign(agent.config, prevConfig);
     agent.onRecord = renderRecord;
 
@@ -235,6 +273,7 @@ async function boot_() {
       numThreads: 1,
     });
     const t0 = performance.now();
+    await loadPolicies();
     manifest = await loadManifest("./scenes.json");
     log(`[清单] scenes.json：${manifest.scenes.length} 个场景 —— ${manifest.scenes.map((s) => s.id).join(", ")}`);
     const want = new URLSearchParams(location.search).get("scene");
@@ -522,6 +561,7 @@ window.__sim = {
   get view() { return view; },
   get agent() { return agent; },
   get scene() { return sceneIndex; },
+  get manual() { return manualIt; },
   sceneId: SCENE, policy: POLICY,
   pause() { control.running = false; },
   resume() { control.running = true; },

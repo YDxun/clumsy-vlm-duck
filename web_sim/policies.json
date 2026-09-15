@@ -1,0 +1,16 @@
+{
+  "_说明": "运行时热插拔的 ONNX 策略清单。文件本身不进仓库（web_sim/assets/policies/ 已在 .gitignore 里），缺哪个就跳过哪个，页面会把不可用的动作 token 自动摘掉。",
+  "_来源": "官方策略来自 microduck_rl 仓库的训练产物；alpha_standup 由本项目的 Mjlab-StandUp-Flat-MicroDuck 任务训练。",
+  "_观测契约": "[1,61] -> [1,14]，所有策略一致，所以可以任意时刻热切换。",
+  "policies": [
+    { "id": "alpha_walking", "file": "alpha_walking.onnx", "role": "locomotion", "required": true },
+    { "id": "alpha_stand", "file": "alpha_stand.onnx", "role": "locomotion" },
+    { "id": "roulade", "file": "roulade.onnx", "role": "skill", "note": "前滚翻" },
+    { "id": "happy_hop", "file": "happy_hop.onnx", "role": "skill", "note": "开心跳" },
+    { "id": "ball_kick_left", "file": "ball_kick_left.onnx", "role": "skill", "note": "左脚踢球（需站位）" },
+    { "id": "ball_kick_right", "file": "ball_kick_right.onnx", "role": "skill", "note": "右脚踢球（需站位）" },
+    { "id": "alpha_sitstand", "file": "alpha_sitstand.onnx", "role": "skill", "note": "坐站转换" },
+    { "id": "alpha_standup", "file": "alpha_standup.onnx", "role": "skill", "note": "倒地起身" },
+    { "id": "alpha_ground_pick", "file": "alpha_ground_pick.onnx", "role": "skill", "note": "地面拾取" }
+  ]
+}

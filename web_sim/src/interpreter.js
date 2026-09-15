@@ -16,6 +16,8 @@ export class ActionInterpreter {
     this.duration = 0;
     this.command = [0, 0, 0];
     this.doneCount = 0;
+    /** 技能 token 需要切 ONNX 策略，由外部注入（浏览器里是 DuckSim.setPolicy）。 */
+    this.policySwitch = null;
   }
 
   get busy() { return this.token !== null; }
@@ -46,6 +48,15 @@ export class ActionInterpreter {
       this.doneCount += 1;
       return { command: [0, 0, 0], done: true, note: "task marked done", token };
     }
+    if (spec.kind === "skill") {
+      this.duration = Math.max(0.10, spec.durationS);
+      this.command = [0, 0, 0];
+      this.skill = token;
+      // 技能策略自己会动，别让头部姿态覆盖它（走路策略的头部约束不适用）
+      this.headDelta = null;
+      if (this.policySwitch) this.policySwitch(spec.policy, token);
+      return { command: [0, 0, 0], done: false, note: "skill started", token };
+    }
     if (spec.kind === "head") {
       this.duration = Math.max(0.10, spec.durationS);
       this.headDelta = Object.fromEntries(spec.headDelta || []);
@@ -66,6 +77,12 @@ export class ActionInterpreter {
       this.token = null;
       const kind = ACTION_SPECS[token].kind;
       this.doneCount += 1;
+      if (kind === "skill") {
+        this.skill = null;
+        // 技能跑完一定要切回走路，否则鸭子会一直用它、站着不动
+        if (this.policySwitch) this.policySwitch("alpha_walking", null);
+        return { command: [0, 0, 0], done: true, note: "skill completed", token };
+      }
       return { command: [0, 0, 0], done: true,
                note: kind === "head" ? "head pose completed" : "motion completed", token };
     }
