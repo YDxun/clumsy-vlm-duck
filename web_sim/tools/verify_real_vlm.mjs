@@ -107,7 +107,10 @@ async function main() {
   const ranges = transcript.map((r) => r.range).filter((v) => v != null);
   const firstRange = ranges[0] ?? null;
   const lastRange = ranges[ranges.length - 1] ?? null;
-  const arrived = (run.minRange ?? 99) < 0.45;
+  // 门槛要按模型自己学到的停点来定：它在 0.32~0.33 m 处收工（见 README 的几局记录）。
+  // 之前写 0.45 m 就要求它停手是不合理的 —— 0.39 m 对一颗 3.5 cm 的球来说还有 11 个球径远，
+  // 继续前进是对的。只有真的贴近了（<0.35 m）却还在猛走，才是问题。
+  const arrived = (run.minRange ?? 99) < 0.35;
   const tailTokens = transcript.slice(-2).map((r) => r.token);
 
   console.log(`\n[结果] ${run.decisions} 次决策 / ${run.steps} 控制步 / 墙钟 ${wall.toFixed(1)} s`);

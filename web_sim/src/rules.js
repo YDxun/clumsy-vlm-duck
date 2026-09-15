@@ -8,7 +8,8 @@
  * 这里只放“不依赖视觉理解”的确定性规则；需要看懂画面的判断一律留给模型。
  */
 
-export const MOTION_TOKENS = ["FWD", "BACK", "TURN_L", "TURN_R"];
+// 从词表里取，别再抄一份 —— 之前 actions.js 和这里各定义了一遍，改一处另一处就悄悄过期
+import { MOTION_TOKENS } from "./actions.js";
 
 export const DEFAULT_RULES = {
   fallen_stop: {

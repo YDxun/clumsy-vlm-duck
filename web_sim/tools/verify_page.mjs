@@ -140,6 +140,23 @@ async function main() {
   check("操作类句子盯的是球而不是区域", kick.target === "ball" && kick.intent === "manipulate",
         `${kick.target} / ${kick.intent}`);
 
+  // 操作方式（推/踢）：自动按语义判定，也能手动指定
+  const modes = await page.$$eval("#manip-mode option", (e) => e.map((x) => x.value));
+  check("界面上有操作方式选择", ["auto", "push", "kick"].every((m) => modes.includes(m)), modes.join(","));
+  const autoPick = await page.evaluate(() => {
+    const a = window.__sim.agent;
+    a.manipulationMode = "auto";
+    const pushTask = a.setTask({ taskId: "push_red_cube" }).taskId && a.manipMode;
+    const kickTask = a.setTask({ taskId: "kick_ball_to_zone" }).taskId && a.manipMode;
+    return { pushTask, kickTask };
+  });
+  check("自动模式按任务语义选推/踢", autoPick.pushTask === "push" && autoPick.kickTask === "kick",
+        JSON.stringify(autoPick));
+  await page.selectOption("#manip-mode", "kick");
+  const forced = await page.evaluate(() => window.__sim.agent.manipMode);
+  check("手动指定操作方式生效", forced === "kick", forced);
+  await page.selectOption("#manip-mode", "auto");
+
   // ---------------------------------------------------------------- BYO key
   console.log("\n== BYO key：只存本机，切到 VLM 模式才出现 ==");
   check("key 输入框默认隐藏", await page.isHidden("#llm-box"));

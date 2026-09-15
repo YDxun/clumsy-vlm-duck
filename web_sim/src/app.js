@@ -48,8 +48,6 @@ let switchingScene = false;           // 换场景期间停掉渲染与物理，
 // 在页面内部分析画面。把 Uint8ClampedArray 整体搬过 CDP 太慢也没必要，
 // 所以快照存在页面里，只把结论（占比/质心/差异）返回给验证脚本。
 const snaps = new Map();
-const CLEAR = [11, 17, 24];   // 与 view.js 的 setClearColor(0x0b1118) 一致
-
 function grab(name) {
   const c = $("canvas");
   const w = c.width, h = c.height;
@@ -65,6 +63,18 @@ function grab(name) {
 
 function stats(rec, { from = null } = {}) {
   const { w, h, data } = rec;
+  // 背景参考色**从画面顶部几行采样**，不能写死清屏色：
+  // 场景美化之后背景是天空渐变，写死 (11,17,24) 会把整幅画都算成前景（校验抓到过这个回归）。
+  let bg = [0, 0, 0];
+  const bgRows = Math.min(4, h);
+  for (let y = 0; y < bgRows; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      bg[0] += data[i] / (bgRows * w);
+      bg[1] += data[i + 1] / (bgRows * w);
+      bg[2] += data[i + 2] / (bgRows * w);
+    }
+  }
   const colors = new Set();
   let fg = 0, sx = 0, sy = 0, changed = 0, csx = 0, csy = 0;
   for (let y = 0; y < h; y++) {
@@ -72,7 +82,7 @@ function stats(rec, { from = null } = {}) {
       const i = (y * w + x) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
       colors.add((r << 16) | (g << 8) | b);
-      if (Math.abs(r - CLEAR[0]) + Math.abs(g - CLEAR[1]) + Math.abs(b - CLEAR[2]) > 24) {
+      if (Math.abs(r - bg[0]) + Math.abs(g - bg[1]) + Math.abs(b - bg[2]) > 24) {
         fg++; sx += x; sy += y;
       }
       if (from) {
@@ -85,6 +95,7 @@ function stats(rec, { from = null } = {}) {
   const n = w * h;
   return {
     width: w, height: h, pixels: n,
+    background: bg.map((v) => Math.round(v)),
     uniqueColors: colors.size,
     foreground: fg, foregroundFrac: fg / n,
     centroid: fg ? { x: sx / fg, y: sy / fg } : null,
@@ -415,6 +426,12 @@ function refreshTaskSelect() {
     applyTask();
   };
   $("task-text").onchange = () => { sel.value = "__free__"; applyTask(); };
+  $("manip-mode").onchange = () => {
+    if (!agent) return;
+    agent.manipulationMode = $("manip-mode").value;
+    agent.setTask({ taskId: sel.value === "__free__" ? "" : sel.value, text: $("task-text").value.trim() });
+    log(`[操作方式] ${$("manip-mode").selectedOptions[0].textContent} → 本次判定为「${agent.manipMode}」`);
+  };
   applyTask();
 }
 

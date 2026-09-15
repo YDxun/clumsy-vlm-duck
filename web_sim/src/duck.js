@@ -42,8 +42,8 @@ export const HEAD_JOINTS = ["neck_pitch", "head_pitch", "head_yaw", "head_roll"]
  * 处理办法照 quackd：低于地板时把**整条 twist 一起**抬到地板（不是逐轴抬），
  * 这样「转 0.8」会变成「转 1.0」并且真的转起来，而不是原地抖。
  */
+// 达成率 0.42 与 quackd 公布的 ACHIEVED_FRACTION 一致（就写在上面那张表里，不再单独导出一个常量）
 export const GAIT_FLOOR = { vx: 0.22, vy: 0.30, wz: 1.15 };
-export const ACHIEVED_FRACTION = 0.42;
 export const CMD_MAX = { vx: 0.40, vy: 0.30, wz: 1.50 };
 
 /** 把一条速度指令抬到步态地板之上；全零指令保持全零。 */
