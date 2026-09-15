@@ -1,12 +1,15 @@
-任务: go to the orange ball and stop next to it
+任务: 去红方块旁边停下
 模型: qwen3-vl-plus
 
-#0 FWD raw="FWD" 1000ms visible=true range=0.9030838178637395 bearing=0.00013952824385113434 rules=
-#1 FWD raw="FWD" 921ms visible=true range=0.8246718867063333 bearing=0.12728990758954334 rules=
-#2 FWD raw="FWD" 487ms visible=true range=0.7509733134571639 bearing=0.15177554645110067 rules=
-#3 FWD raw="FWD" 919ms visible=true range=0.6819534547388847 bearing=0.03191173762817427 rules=
-#4 FWD raw="FWD" 642ms visible=true range=0.6079695270507878 bearing=0.10061191117756486 rules=
-#5 FWD raw="FWD" 486ms visible=true range=0.5361333595287521 bearing=0.01554176220339663 rules=
-#6 FWD raw="FWD" 631ms visible=true range=0.46312362084681774 bearing=-0.03480136049204002 rules=
-#7 FWD raw="FWD" 533ms visible=true range=0.3864697339052099 bearing=-0.004010548980063435 rules=
-#8 DONE raw="DONE" 544ms visible=true range=0.31633472264340623 bearing=-0.08712269706885226 rules=
+#0 TURN_R raw="TURN_R" 933ms visible=false range=null bearing=null rules=
+#1 FWD raw="FWD" 1186ms visible=true range=0.9547003674104112 bearing=-0.23920481311002081 rules=
+#2 FWD raw="FWD" 610ms visible=true range=0.8829398768304049 bearing=-0.1538347525234347 rules=
+#3 FWD raw="FWD" 562ms visible=true range=0.8147798126719987 bearing=-0.2549723267934524 rules=
+#4 TURN_R raw="TURN_R" 530ms visible=true range=0.7469162459300798 bearing=-0.30116543458897127 rules=
+#5 FWD raw="FWD" 527ms visible=true range=0.7417437561217538 bearing=0.0805949760993963 rules=
+#6 FWD raw="FWD" 576ms visible=true range=0.6720691130991328 bearing=0.18285064474588933 rules=
+#7 FWD raw="FWD" 824ms visible=true range=0.6044147481659149 bearing=0.14306944699279842 rules=
+#8 FWD raw="FWD" 504ms visible=true range=0.534437814262089 bearing=0.16792417529803827 rules=
+#9 FWD raw="FWD" 1005ms visible=true range=0.4648516488138155 bearing=0.1992341279170885 rules=
+#10 FWD raw="FWD" 794ms visible=true range=0.3944165749152987 bearing=0.29220927664556673 rules=
+#11 DONE raw="DONE" 955ms visible=true range=0.3327199761993936 bearing=0.24479838298199177 rules=
