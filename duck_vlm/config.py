@@ -1,4 +1,4 @@
-﻿"""Configuration for the duck VLM action-token harness."""
+"""Configuration for the duck VLM action-token harness."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -23,6 +23,7 @@ class PluginConfig:
     fall_recovery: bool = True
     human_takeover: bool = True
     search_align: bool = True
+    explore: bool = True
     extra_views: bool = False
 
     def to_dict(self) -> dict[str, bool]:

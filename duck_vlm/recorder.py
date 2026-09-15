@@ -43,6 +43,7 @@ class EpisodeRecorder:
         self.events_path: Path | None = None
         self.transitions_path: Path | None = None
         self._closed = True
+        self._live_index = 0
 
     @property
     def active(self) -> bool:
@@ -56,6 +57,7 @@ class EpisodeRecorder:
         self.events_path = self.session_dir / "events.jsonl"
         self.transitions_path = self.session_dir / "transitions.jsonl"
         self._closed = False
+        self._live_index = 0
         self.record_event({"type": "session_start", "task": task, "target": target,
                            "mode": mode, "config": _jsonable(config or {})})
         return self.session_dir
@@ -82,10 +84,8 @@ class EpisodeRecorder:
         if not self.active or self.session_dir is None or not extra_views:
             return {}
         session_dir = self.session_dir
-        main_dir = session_dir / "frames_main"
         dual_dir = session_dir / "frames_dual"
         try:
-            main_dir.mkdir(exist_ok=True)
             dual_dir.mkdir(exist_ok=True)
         except Exception:
             return {}
@@ -94,8 +94,10 @@ class EpisodeRecorder:
         for name, data in extra_views:
             if not data:
                 continue
-            path = main_dir / f"{step_index:05d}.jpg"
+            view_dir = session_dir / f"frames_{name}"
             try:
+                view_dir.mkdir(exist_ok=True)
+                path = view_dir / f"{step_index:05d}.jpg"
                 path.write_bytes(bytes(data))
                 out[str(name)] = str(path.relative_to(session_dir))
                 tiles.append(bytes(data))
@@ -115,6 +117,33 @@ class EpisodeRecorder:
             except Exception:
                 pass
         return out
+
+    def save_live_dual(self, head_jpeg: bytes, *extra_jpegs: bytes) -> str:
+        """Append a multi-panel demo frame at video cadence.
+
+        Panels run left to right: duck-cam, then each extra view (typically the
+        third-person tracking shot, where the duck is large, followed by the
+        whole-floor overview, where the duck is small but the map is complete).
+        """
+        parts = [head_jpeg] + [e for e in extra_jpegs]
+        if (not self.active or self.session_dir is None or Image is None
+                or not head_jpeg or not all(parts)):
+            return ""
+        try:
+            out_dir = self.session_dir / "frames_dual_live"
+            out_dir.mkdir(exist_ok=True)
+            head = Image.open(io.BytesIO(bytes(head_jpeg))).convert("RGB")
+            canvas = Image.new("RGB", (head.width * len(parts), head.height), (0, 0, 0))
+            canvas.paste(head, (0, 0))
+            for i, data in enumerate(parts[1:], start=1):
+                tile = Image.open(io.BytesIO(bytes(data))).convert("RGB")
+                canvas.paste(tile.resize((head.width, head.height)), (i * head.width, 0))
+            path = out_dir / f"{self._live_index:06d}.jpg"
+            self._live_index += 1
+            canvas.save(path, format="JPEG", quality=85)
+            return str(path.relative_to(self.session_dir))
+        except Exception:
+            return ""
 
     def record_event(self, event: dict[str, Any]) -> None:
         if not self.active or self.events_path is None:

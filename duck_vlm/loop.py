@@ -28,6 +28,7 @@ class DuckVlmLoop:
     def __init__(self, *, vlm: VlmDecisionClient | None = None, state_provider: StateProvider,
                  image_provider: ImageProvider, kick: Any, policies: dict[str, Any] | None = None,
                  extra_image_provider: ImageProvider | None = None,
+                 overview_image_provider: ImageProvider | None = None,
                  reset_callback: Callable[[], None] | None = None,
                  loop_config: LoopConfig | None = None, vlm_config: VLMConfig | None = None,
                  task_manager: TaskManager | None = None):
@@ -37,6 +38,7 @@ class DuckVlmLoop:
         # Optional second camera (third-person/scene view) kept only for the demo
         # recording; it is never fed to the VLM prompt.
         self.extra_image_provider = extra_image_provider
+        self.overview_image_provider = overview_image_provider
         self.kick = kick
         self.policies = policies or {}
         self.reset_callback = reset_callback or (lambda: None)
@@ -260,20 +262,45 @@ class DuckVlmLoop:
                 self.recorder.record_decision(record, observation)
                 return self._begin_action(token, state, sim_time, source="human")
         if self._pending is None:
-            self._begin_decision(state)
+            # Fast path: while the explore plugin is running the show (goal off
+            # camera, no recent sighting) it already knows the action, so skip the
+            # ~1 s VLM round-trip and spend that budget covering more ground.
+            observation = self._make_observation(state)
+            directive = (self.plugins.explore_directive(observation)
+                         or self.plugins.reactive_directive(observation))
+            if directive:
+                record = DecisionRecord(
+                    step_index=self.step_index, token=directive, source="reactive",
+                    raw_response="", provider="plugin", model="reactive", latency_s=0.0,
+                    note="reactive_directive",
+                    image_path=self.recorder.save_image(observation.image_jpeg, self.step_index),
+                    observation=observation.to_dict(), prompt=observation.prompt)
+                self.recorder.record_decision(record, observation)
+                return self._begin_action(directive, state, sim_time, source="reactive")
+            self._begin_decision(state, observation=observation)
         return zero
 
     def _make_observation(self, state: DuckState) -> VlmObservation:
         image = self.image_provider() or b""
         observation = VlmObservation(task=self.task, task_id=self.active_task_id, target=self.target, image_jpeg=image,
                                      state=state, step_index=self.step_index, recent_actions=[])
+        views: list[tuple[str, bytes]] = []
         if self.extra_image_provider is not None:
             try:
                 extra = self.extra_image_provider() or b""
             except Exception:
                 extra = b""
             if extra:
-                observation.extra_views = [("scene", extra)]
+                views.append(("track", extra))
+        if self.overview_image_provider is not None:
+            try:
+                overview = self.overview_image_provider() or b""
+            except Exception:
+                overview = b""
+            if overview:
+                views.append(("overview", overview))
+        if views:
+            observation.extra_views = views
         context = {"action_token": self.last_token, "last_result": self.last_result,
                    "allowed_tokens": available_tokens(self.policies)}
         observation = self.plugins.before_decision(observation, context)
@@ -281,8 +308,9 @@ class DuckVlmLoop:
         observation.prompt = render_prompt(observation, available_tokens(self.policies), self.vlm_config.mode, self.vlm_config.prompt_version)
         return observation
 
-    def _begin_decision(self, state: DuckState) -> None:
-        observation = self._make_observation(state)
+    def _begin_decision(self, state: DuckState,
+                        observation: VlmObservation | None = None) -> None:
+        observation = observation or self._make_observation(state)
         allowed = tuple(available_tokens(self.policies))
         self._pending_observation = observation
         self._pending_context = {"action_token": self.last_token, "last_result": self.last_result,

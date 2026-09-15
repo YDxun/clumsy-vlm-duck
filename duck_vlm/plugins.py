@@ -227,6 +227,134 @@ class SearchAlignPlugin(DuckPlugin):
         return {"enabled": self.enabled, "turn_dir": self._turn_dir,
                 "search_dir": self._search_dir}
 
+class ExplorePlugin(DuckPlugin):
+    """Head for the nearest opening and keep covering new ground when blind.
+
+    Only the floor plan is used (a map the robot may legitimately hold); the
+    target's hidden position is never consulted. This replaces the old
+    "spin on the spot until something appears" behaviour, which could never
+    leave the room it started in.
+    """
+
+    name = "explore"
+    ARRIVE_M = 0.30
+    ALIGN_RAD = 0.35
+    LOCO = ("FWD", "BACK", "STRAFE_L", "STRAFE_R", "TURN_L", "TURN_R", "STOP", "STAND")
+    # Tasks whose goal is a pose, a specific gait, or an orbit: walking to a
+    # doorway would actively fight the objective, so leave them alone.
+    SKIP_TASKS = ("walk_turn_stop", "rough_ground_walk", "recover_after_fall",
+                  "narrow_corridor", "orbit_stranger")
+    # If the goal was on camera very recently, losing it is a local perception
+    # problem (it dropped below the chin), not a reason to walk off exploring.
+    SEEN_HOLD_STEPS = 8
+
+    def __init__(self, enabled: bool = True):
+        super().__init__(enabled)
+        self.waypoints: list[tuple[float, float]] = []
+        self.index = 0
+        self._hold = 0
+        self._last_step: int | None = None
+        self._engaged = False
+
+    def set_waypoints(self, waypoints: Any) -> None:
+        self.waypoints = [(float(w[0]), float(w[1])) for w in (waypoints or [])]
+        self.index = 0
+
+    def reset(self) -> None:
+        self.index = 0
+        self._hold = 0
+        self._last_step = None
+        self._engaged = False
+
+    def _seen_hold(self, observation: VlmObservation) -> int:
+        """Count down the "goal was just visible" hold; idempotent per step."""
+        step = observation.step_index
+        if self._last_step != step:
+            self._last_step = step
+            if observation.state.target_visible:
+                self._hold = self.SEEN_HOLD_STEPS
+            elif self._hold > 0:
+                self._hold -= 1
+        return self._hold
+
+    def _pending(self, state: DuckState) -> tuple[float, float] | None:
+        i = self.index
+        while i < len(self.waypoints):
+            wx, wy = self.waypoints[i]
+            if math.hypot(wx - state.x, wy - state.y) <= self.ARRIVE_M:
+                i += 1
+                continue
+            return (wx, wy)
+        return None
+
+    def _active(self, observation: VlmObservation) -> bool:
+        if not self.enabled or not self.waypoints:
+            return False
+        # Arm/decay the hold first: while the goal is visible this records that
+        # it was just seen, so losing it does not immediately trigger a trek.
+        hold = self._seen_hold(observation)
+        if observation.state.target_visible:
+            self._engaged = False
+            return False
+        if (observation.task_id or "") in self.SKIP_TASKS:
+            self._engaged = False
+            return False
+        active = hold == 0
+        if active and not self._engaged:
+            # Resume the tour in order. The waypoint list is built doorway-first,
+            # so staying on it guarantees the duck heads for the opening rather
+            # than drifting to whatever cell happens to be nearest.
+            self._pending(observation.state)
+        self._engaged = active
+        return active
+
+    def before_decision(self, observation: VlmObservation, context: dict[str, Any]) -> VlmObservation:
+        if not self._active(observation) or observation.state.target_visible:
+            return observation
+        wp = self._pending(observation.state)
+        if wp is None:
+            return observation
+        hint = (f"EXPLORE: the goal is not visible. Head for the next opening/waypoint at "
+                f"({wp[0]:.2f},{wp[1]:.2f}) and keep moving to cover new ground.")
+        observation.subgoal = f"{observation.subgoal} {hint}".strip() if observation.subgoal else hint
+        return observation
+
+    def resolve_token(self, token: str, observation: VlmObservation, context: dict[str, Any]) -> str:
+        if not self._active(observation):
+            return token
+        state = observation.state
+        if state.target_visible:
+            # Do NOT rewind the exploration tour: if the goal slips out of view
+            # again we must carry on from the ground we already covered instead
+            # of marching back to the first waypoint (behind us).
+            self._pending(state)
+            return token
+        if token not in self.LOCO:
+            return token   # never hijack a skill token
+        while self.index < len(self.waypoints):
+            wx, wy = self.waypoints[self.index]
+            dx, dy = wx - state.x, wy - state.y
+            if math.hypot(dx, dy) <= self.ARRIVE_M:
+                self.index += 1
+                continue
+            ang = math.atan2(dy, dx) - state.heading_rad
+            ang = (ang + math.pi) % (2 * math.pi) - math.pi
+            if abs(ang) > self.ALIGN_RAD:
+                return "TURN_L" if ang > 0 else "TURN_R"
+            return "FWD"
+        return token
+
+    def directive(self, observation: VlmObservation) -> str | None:
+        """Action this plugin can take on its own, or None to defer to the VLM."""
+        if not self._active(observation):
+            return None
+        return self.resolve_token("FWD", observation, {})
+
+    def status(self) -> dict[str, Any]:
+        return {"enabled": self.enabled, "index": self.index,
+                "waypoints": len(self.waypoints), "seen_hold": self._hold}
+
+
 class AffordancePlugin(DuckPlugin):
     name = "affordance"
 
@@ -377,6 +505,7 @@ class PluginSuite:
             AffordancePlugin(cfg.affordance),
             RecoveryPlugin(cfg.recovery),
             SearchAlignPlugin(cfg.search_align),
+            ExplorePlugin(cfg.explore),
             HumanTakeoverPlugin(cfg.human_takeover),
         ]
         return cls(cfg, plugins, {plugin.name: plugin for plugin in plugins})
@@ -393,6 +522,38 @@ class PluginSuite:
         for plugin in self.plugins:
             token = plugin.resolve_token(token, observation, context)
         return token
+
+    def set_waypoints(self, waypoints: Any) -> None:
+        for plugin in self.plugins:
+            if isinstance(plugin, ExplorePlugin):
+                plugin.set_waypoints(waypoints)
+
+    def explore_directive(self, observation: VlmObservation) -> str | None:
+        for plugin in self.plugins:
+            if isinstance(plugin, ExplorePlugin):
+                return plugin.directive(observation)
+        return None
+
+    def reactive_directive(self, observation: VlmObservation) -> str | None:
+        """Unambiguous long-range approach, resolved without a VLM round-trip.
+
+        When the goal is plainly on camera and still far away, the correct action
+        is fully determined (walk at it, or turn toward it). Spending ~1 s of the
+        episode budget asking a VLM for that leaves less time to actually travel.
+        Anything subtle - final approach, kicking, stopping, choosing between
+        objects, or a lost target - still goes to the model.
+        """
+        if not self.get("explore") or not self.get("search_align"):
+            return None
+        state = observation.state
+        if not state.target_visible or state.target_bearing_rad is None:
+            return None
+        rng = state.target_range_m
+        if rng is None or rng < 0.45:
+            return None
+        if abs(state.target_bearing_rad) < 0.35:
+            return "FWD"
+        return "TURN_L" if state.target_bearing_rad > 0 else "TURN_R"
 
     def reset(self) -> None:
         for plugin in self.plugins:

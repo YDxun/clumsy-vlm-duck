@@ -198,6 +198,9 @@ class Server:
         self.local_policy = 'alpha_stand'
         self.local_command = np.zeros(3, dtype=np.float32)
         self.last_main_jpg = b""
+        self.last_main_at = 0.0
+        self.last_scene_jpg = b""
+        self.last_scene_at = 0.0
         self.last_headcam_jpg = b""
         self.last_headcam_at = 0.0
 
@@ -258,6 +261,33 @@ class Server:
         cam.elevation = float(self.cam.get("elevation", -16))
         r.update_scene(self.render_data, camera=cam)
         return self._jpeg(r.render())
+
+    def render_overview(self):
+        """Whole-floor overview (fixed scene camera) for the demo composite.
+
+        The third-person tracking view only frames the duck, so the demo could
+        not show where the duck was in the map. This uses the scene's
+        `cam_overhead` camera so the full floor plan and the duck are both visible.
+        """
+        key = "overview"
+        if key not in self._cam_renderer:
+            r = mujoco.Renderer(self.sim.model, height=360, width=640)
+            cam = mujoco.MjvCamera()
+            cid = mujoco.mj_name2id(self.sim.model, mujoco.mjtObj.mjOBJ_CAMERA, "cam_overhead")
+            if cid >= 0:
+                cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+                cam.fixedcamid = cid
+            else:
+                cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+                cam.trackbodyid = self.sim.trunk_id
+                cam.lookat = [0.0, 0.0, 0.08]
+                cam.distance = 4.5
+                cam.azimuth = 130.0
+                cam.elevation = -70.0
+            self._cam_renderer[key] = (r, cam)
+        r, cam = self._cam_renderer[key]
+        r.update_scene(self.render_data, camera=cam)
+        return self._jpeg(r.render(), quality=80)
 
     def render_headcam(self):
         if "head" not in self._cam_renderer:
@@ -381,12 +411,26 @@ class Server:
 
     async def headcam_loop(self):
         loop = asyncio.get_running_loop()
+        frame_i = 0
         while True:
             if self.viewers or self.vision is not None or (self.vlm is not None and self.control_mode == "vlm"):
                 self._sync_render_state()
                 jpg = await loop.run_in_executor(self.render_exec, self.render_headcam)
                 self.last_headcam_jpg = jpg
                 self.last_headcam_at = time.monotonic()
+                # Demo video: stitch the duck-cam with a whole-floor overview faster
+                # than the once-per-decision frame so the clip is smooth and longer.
+                if self.vlm is not None and getattr(self.vlm, "recording", lambda: False)():
+                    frame_i += 1
+                    # Third-person tracking shot every frame so the duck stays large
+                    # and smooth; the whole-floor overview refreshes every other frame.
+                    self.last_main_jpg = await loop.run_in_executor(self.render_exec, self.render_main)
+                    self.last_main_at = time.monotonic()
+                    if frame_i % 2 == 1:
+                        self.last_scene_jpg = await loop.run_in_executor(self.render_exec, self.render_overview)
+                        self.last_scene_at = time.monotonic()
+                    if self.last_scene_jpg and self.last_main_jpg:
+                        self.vlm.record_demo_frame()
                 if self.viewers:
                     for ws in list(self.viewers):
                         try:

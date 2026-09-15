@@ -28,6 +28,7 @@ class DuckVlmHost:
             state_provider=self._state,
             image_provider=self.capture_headcam,
             extra_image_provider=self.capture_main,
+            overview_image_provider=self.capture_overview,
             kick=server.kick,
             policies=server.policies.sessions,
             reset_callback=server.sim.reset,
@@ -35,6 +36,48 @@ class DuckVlmHost:
             vlm_config=self.vlm.config,
             task_manager=self.task_manager,
         )
+        self._install_waypoints()
+
+    def _install_waypoints(self) -> None:
+        """Derive exploration waypoints (doorways + floor coverage) from the scene map.
+
+        Doorways come first, each followed by a point just beyond it, then a coarse
+        coverage grid anchored on the far side so the duck keeps entering new areas.
+        """
+        xml = getattr(self.scene, "xml", None)
+        if xml is None:
+            return
+        try:
+            from .map import coverage_waypoints, doorways
+        except Exception:
+            return
+        spawn = (0.0, 0.0)
+        try:
+            meta = (getattr(self.scene, "metadata", {}) or {}).get("robot", {}) or {}
+            xy = (meta.get("spawn") or {}).get("xy")
+            if isinstance(xy, (list, tuple)) and len(xy) >= 2:
+                spawn = (float(xy[0]), float(xy[1]))
+        except Exception:
+            spawn = (0.0, 0.0)
+        try:
+            doors = sorted(doorways(xml),
+                           key=lambda d: (d["center"][0] - spawn[0]) ** 2 + (d["center"][1] - spawn[1]) ** 2)
+            wps: list[tuple[float, float]] = []
+            for d in doors:
+                cx, cy = d["center"]
+                wps.append((cx, cy))
+                push = 1.0
+                if d["through"] == "x":
+                    sgn = 1.0 if cx >= spawn[0] else -1.0
+                    wps.append((cx + sgn * push, cy))
+                else:
+                    sgn = 1.0 if cy >= spawn[1] else -1.0
+                    wps.append((cx, cy + sgn * push))
+            anchor = wps[-1] if wps else spawn
+            wps.extend(coverage_waypoints(xml, from_xy=anchor))
+            self.loop.plugins.set_waypoints(wps)
+        except Exception:
+            return
 
     def _state(self, target: str, sim_time: float):
         return self.sensor.snapshot(target, sim_time)
@@ -55,8 +98,20 @@ class DuckVlmHost:
         self.server.last_headcam_at = time.monotonic()
         return jpg
 
+    def recording(self) -> bool:
+        return bool(self.loop.recorder.active)
+
+    def record_demo_frame(self) -> str:
+        """Append one duck-cam | whole-floor-overview frame to the demo video."""
+        if not self.loop.recorder.active:
+            return ""
+        head = bytes(getattr(self.server, "last_headcam_jpg", b"") or b"")
+        track = bytes(getattr(self.server, "last_main_jpg", b"") or b"")
+        scene = bytes(getattr(self.server, "last_scene_jpg", b"") or b"")
+        return self.loop.recorder.save_live_dual(head, track, scene)
+
     def capture_main(self) -> bytes:
-        """Third-person scene view, recorded next to the duck-cam for demos."""
+        """Third-person tracking view: the duck fills the frame."""
         jpg = bytes(getattr(self.server, "last_main_jpg", b"") or b"")
         age = time.monotonic() - float(getattr(self.server, "last_main_at", 0.0))
         if jpg and age <= self.loop.loop_config.stale_image_s:
@@ -67,6 +122,20 @@ class DuckVlmHost:
         jpg = self.server.render_exec.submit(_render).result(timeout=5.0)
         self.server.last_main_jpg = jpg
         self.server.last_main_at = time.monotonic()
+        return jpg
+
+    def capture_overview(self) -> bytes:
+        """Whole-floor overview: the complete map with the duck on it."""
+        jpg = bytes(getattr(self.server, "last_scene_jpg", b"") or b"")
+        age = time.monotonic() - float(getattr(self.server, "last_scene_at", 0.0))
+        if jpg and age <= self.loop.loop_config.stale_image_s:
+            return jpg
+        def _render():
+            self.server._sync_render_state()
+            return self.server.render_overview()
+        jpg = self.server.render_exec.submit(_render).result(timeout=5.0)
+        self.server.last_scene_jpg = jpg
+        self.server.last_scene_at = time.monotonic()
         return jpg
 
     def head_override(self) -> dict[str, float] | None:
