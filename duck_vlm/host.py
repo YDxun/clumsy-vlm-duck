@@ -9,7 +9,7 @@ import numpy as np
 from .config import LoopConfig, VLMConfig
 from .loop import DuckVlmLoop
 from .scenes import catalog
-from .state import DuckStateSensor
+from .state import DuckStateSensor, reset_to_spawn
 from .task_manager import TaskManager
 from .vlm import VlmDecisionClient
 
@@ -32,11 +32,33 @@ class DuckVlmHost:
             kick=server.kick,
             policies=server.policies.sessions,
             reset_callback=server.sim.reset,
+            spawn_setter=lambda task: reset_to_spawn(server.sim, task),
             loop_config=LoopConfig(),
             vlm_config=self.vlm.config,
             task_manager=self.task_manager,
         )
         self._install_waypoints()
+        self._install_zones()
+
+    def _install_zones(self) -> None:
+        """Publish static zone centres so the kick-station planner can aim."""
+        meta = getattr(self.scene, "metadata", None) or {}
+        zones: dict[str, tuple[float, float]] = {}
+        for z in meta.get("zones") or []:
+            centre = z.get("center") or z.get("centre")
+            if not isinstance(centre, (list, tuple)) or len(centre) < 2:
+                continue
+            try:
+                xy = (float(centre[0]), float(centre[1]))
+            except Exception:
+                continue
+            for name in (z.get("id"), z.get("body"), *(z.get("semantic_labels") or [])):
+                if name:
+                    zones[str(name)] = xy
+        try:
+            self.loop.plugins.set_zones(zones)
+        except Exception:
+            return
 
     def _install_waypoints(self) -> None:
         """Derive exploration waypoints (doorways + floor coverage) from the scene map.

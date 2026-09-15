@@ -24,6 +24,7 @@ class PluginConfig:
     human_takeover: bool = True
     search_align: bool = True
     explore: bool = True
+    kick_station: bool = True
     extra_views: bool = False
 
     def to_dict(self) -> dict[str, bool]:

@@ -7,7 +7,8 @@ import unittest
 from duck_vlm.actions import TOKENS, available_tokens, parse_action_token
 from duck_vlm.config import LoopConfig, PluginConfig, VLMConfig
 from duck_vlm.interpreter import DuckActionInterpreter
-from duck_vlm.plugins import ExplorePlugin, RecoveryPlugin, SearchAlignPlugin
+from duck_vlm.plugins import (ExplorePlugin, KickStationPlugin, PluginSuite,
+                              RecoveryPlugin, SearchAlignPlugin)
 from duck_vlm.recorder import EpisodeRecorder, export_alpaca
 from duck_vlm.types import DuckState, VlmObservation
 from duck_vlm.loop import DuckVlmLoop
@@ -354,6 +355,137 @@ class ExplorePluginTest(unittest.TestCase):
         obs = self._obs(-1.0, 0.0, 0.0)
         obs = p.before_decision(obs, {})
         self.assertIn("EXPLORE", obs.subgoal)
+
+
+class KickStationTest(unittest.TestCase):
+    def _obs(self, x, y, heading, obj_xyz, task_id="kick_ball_to_zone", rng=0.5):
+        state = DuckState(sim_time=0.0, x=x, y=y, z=0.12, heading_rad=heading,
+                          linear_speed_mps=0.0, angular_speed_rps=0.0, upright=1.0,
+                          fallen=False, target_name="ball")
+        state.target_world_xyz = obj_xyz
+        state.target_visible = obj_xyz is not None
+        state.target_range_m = rng if obj_xyz is not None else None
+        state.target_bearing_rad = 0.0 if obj_xyz is not None else None
+        return VlmObservation(task="t", task_id=task_id, target="ball", image_jpeg=b"",
+                              state=state, step_index=0, recent_actions=[])
+
+    def _plugin(self):
+        p = KickStationPlugin(True)
+        p.set_zones({"zone_green": (2.0, 0.0)})
+        return p
+
+    def test_defers_when_object_not_visible(self):
+        p = self._plugin()
+        obs = self._obs(-1.0, 0.0, 0.0, None)
+        self.assertIsNone(p.directive(obs), "must not plan on a hidden object")
+
+    def test_defers_for_unrelated_tasks(self):
+        p = self._plugin()
+        obs = self._obs(-1.0, 0.0, 0.0, (0.0, 0.0, 0.035), task_id="walk_to_ball")
+        self.assertIsNone(p.directive(obs))
+
+    def test_walks_to_the_stance_behind_the_object(self):
+        # object at origin, zone at +x -> stance is at x = -0.28, so from x=-1.0 we walk +x
+        p = self._plugin()
+        obs = self._obs(-1.0, 0.0, 0.0, (0.0, 0.0, 0.035))
+        self.assertEqual(p.directive(obs), "FWD")
+
+    def test_turns_toward_the_stance_when_misaligned(self):
+        p = self._plugin()
+        obs = self._obs(-1.0, 0.0, math.pi / 2, (0.0, 0.0, 0.035))   # facing +y
+        self.assertEqual(p.directive(obs), "TURN_R")
+
+    def test_hands_back_to_the_model_once_lined_up(self):
+        # sitting on the stance point (-0.28, 0) facing +x: object->zone is +x
+        p = self._plugin()
+        obs = self._obs(-0.28, 0.0, 0.0, (0.0, 0.0, 0.035), rng=0.28)
+        self.assertIsNone(p.directive(obs), "kicking itself stays a model decision")
+
+    def test_subgoal_verbalizes_the_stance(self):
+        p = self._plugin()
+        obs = self._obs(-1.0, 0.0, 0.0, (0.0, 0.0, 0.035))
+        obs = p.before_decision(obs, {})
+        self.assertIn("KICK STATION", obs.subgoal)
+
+
+class ReactiveBandTest(unittest.TestCase):
+    def _obs(self, rng, bearing, task_id="walk_to_ball"):
+        state = DuckState(sim_time=0.0, x=0.0, y=0.0, z=0.12, heading_rad=0.0,
+                          linear_speed_mps=0.0, angular_speed_rps=0.0, upright=1.0,
+                          fallen=False, target_name="ball")
+        state.target_visible = True
+        state.target_range_m = rng
+        state.target_bearing_rad = bearing
+        return VlmObservation(task="t", task_id=task_id, target="ball", image_jpeg=b"",
+                              state=state, step_index=0, recent_actions=[])
+
+    def _suite(self):
+        return PluginSuite.build(PluginConfig())
+
+    def test_small_step_band_is_handled(self):
+        suite = self._suite()
+        self.assertEqual(suite.reactive_directive(self._obs(0.32, 0.05)), "FWD",
+                         "0.20-0.45 m on-axis should not cost a VLM round-trip")
+
+    def test_too_close_defers_to_the_model(self):
+        suite = self._suite()
+        self.assertIsNone(suite.reactive_directive(self._obs(0.15, 0.05)))
+
+    def test_off_axis_in_the_band_defers(self):
+        suite = self._suite()
+        self.assertIsNone(suite.reactive_directive(self._obs(0.32, 0.60)))
+
+    def test_pose_task_is_not_second_guessed(self):
+        suite = self._suite()
+        # walk_turn_stop needs a heading; walking at the ball would break it
+        self.assertIsNone(suite.reactive_directive(self._obs(1.2, 0.05, task_id="walk_turn_stop")))
+        self.assertIsNone(suite.reactive_directive(self._obs(0.32, 0.05, task_id="walk_turn_stop")))
+
+    def test_approach_task_still_fast_paths(self):
+        suite = self._suite()
+        self.assertEqual(suite.reactive_directive(self._obs(1.2, 0.05, task_id="go_to_beacon")), "FWD")
+        self.assertEqual(suite.reactive_directive(self._obs(0.32, 0.05, task_id="search_ball_across_rooms")), "FWD")
+
+    def test_kick_tasks_keep_their_stance_planner(self):
+        suite = self._suite()
+        self.assertIsNone(suite.reactive_directive(self._obs(0.32, 0.05, task_id="kick_ball_to_zone")))
+
+
+class LocalSearchTest(unittest.TestCase):
+    def _obs(self, x, y, step, visible, task_id="search_ball_across_rooms"):
+        state = DuckState(sim_time=0.0, x=x, y=y, z=0.12, heading_rad=0.0,
+                          linear_speed_mps=0.0, angular_speed_rps=0.0, upright=1.0,
+                          fallen=False, target_name="ball")
+        state.target_visible = visible
+        state.target_range_m = 1.0 if visible else None
+        state.target_bearing_rad = 0.0 if visible else None
+        return VlmObservation(task="t", task_id=task_id, target="ball", image_jpeg=b"",
+                              state=state, step_index=step, recent_actions=[])
+
+    def test_returns_to_the_last_sighting_before_moving_on(self):
+        p = ExplorePlugin(True)
+        p.set_waypoints([(5.0, 5.0)])
+        p.resolve_token("TURN_L", self._obs(1.0, 0.0, 0, True), {})      # sighting at (1,0)
+        # drift away, let the hold expire, then explore must head BACK to (1,0)
+        out = None
+        for step in range(1, 14):
+            out = p.resolve_token("FWD", self._obs(2.5, 0.0, step, False), {})
+            if p.status().get("searching") and out in ("TURN_L", "TURN_R"):
+                break
+        self.assertTrue(p.status()["searching"], "local search should have engaged")
+        self.assertIn(out, ("TURN_L", "TURN_R"),
+                      "should turn back toward the last sighting, not walk to (5,5)")
+
+    def test_sweeps_then_resumes_the_tour(self):
+        p = ExplorePlugin(True)
+        p.set_waypoints([(5.0, 5.0)])
+        p.resolve_token("TURN_L", self._obs(1.0, 0.0, 0, True), {})
+        for step in range(1, 14):
+            p.resolve_token("FWD", self._obs(2.5, 0.0, step, False), {})
+        outs = [p.resolve_token("FWD", self._obs(1.0, 0.0, 20 + i, False), {})
+                for i in range(p.SEARCH_SWEEP_STEPS + 2)]
+        self.assertIn("TURN_L", outs[:p.SEARCH_SWEEP_STEPS], "should sweep in place first")
+        self.assertFalse(p.status()["searching"], "sweep is bounded")
 
 
 if __name__ == "__main__":

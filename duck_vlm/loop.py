@@ -30,6 +30,7 @@ class DuckVlmLoop:
                  extra_image_provider: ImageProvider | None = None,
                  overview_image_provider: ImageProvider | None = None,
                  reset_callback: Callable[[], None] | None = None,
+                 spawn_setter: Callable[[dict[str, Any] | None], Any] | None = None,
                  loop_config: LoopConfig | None = None, vlm_config: VLMConfig | None = None,
                  task_manager: TaskManager | None = None):
         self.vlm = vlm or VlmDecisionClient()
@@ -42,6 +43,7 @@ class DuckVlmLoop:
         self.kick = kick
         self.policies = policies or {}
         self.reset_callback = reset_callback or (lambda: None)
+        self.spawn_setter = spawn_setter
         self.loop_config = loop_config or LoopConfig()
         self.vlm_config = vlm_config or getattr(self.vlm, "config", VLMConfig.from_env())
         self.task_manager = task_manager
@@ -113,6 +115,13 @@ class DuckVlmLoop:
         if self.task_manager is not None:
             task_def = self.task_manager.start(self.task)
             if task_def:
+                # Start the episode from the pose the task was designed around,
+                # otherwise a task can inherit the previous one's end state.
+                if self.spawn_setter is not None:
+                    try:
+                        self.spawn_setter(task_def)
+                    except Exception as exc:
+                        self.last_error = f"spawn failed: {exc}"
                 self.active_task_id = str(task_def.get("id") or "")
                 instruction = task_def.get("instruction_en") or task_def.get("instruction_zh")
                 if instruction:
@@ -267,6 +276,7 @@ class DuckVlmLoop:
             # ~1 s VLM round-trip and spend that budget covering more ground.
             observation = self._make_observation(state)
             directive = (self.plugins.explore_directive(observation)
+                         or self.plugins.station_directive(observation)
                          or self.plugins.reactive_directive(observation))
             if directive:
                 record = DecisionRecord(

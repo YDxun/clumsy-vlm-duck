@@ -1,4 +1,4 @@
-﻿"""MuJoCo state adapter for VLM prompts and reward/recording data."""
+"""MuJoCo state adapter for VLM prompts and reward/recording data."""
 from __future__ import annotations
 
 import math
@@ -142,3 +142,45 @@ class DuckStateSensor:
             return DuckHeadCam(width=320, height=240, pitch_up_deg=-20, fwd_m=0.09, up_m=0.03).project(world_xyz, self.sim)
         except Exception:
             return None
+
+def reset_to_spawn(sim: Any, task: dict | None = None, rng: Any = None) -> dict:
+    """Reset the sim and place the duck at the task's declared ``robot_spawn``.
+
+    Consecutive episodes otherwise inherit whatever pose the previous task ended
+    in, which silently makes some tasks trivial (e.g. walk_turn_stop passing in
+    three steps because the duck already stood near the goal region). The scene
+    pack declares a spawn per task, so honour it.
+    """
+    import random as _random
+    rand = rng or _random
+    if hasattr(sim, "reset"):
+        sim.reset()
+    info: dict[str, Any] = {"reset": True, "spawn": None}
+    spawn = (task or {}).get("robot_spawn") or {}
+    xy = spawn.get("xy")
+    if not (isinstance(xy, (list, tuple)) and len(xy) >= 2):
+        return info
+    try:
+        import mujoco
+    except Exception:
+        return info
+    x, y = float(xy[0]), float(xy[1])
+    radius = float(spawn.get("random_xy_radius_m") or 0.0)
+    if radius > 0.0:
+        ang = rand.uniform(0.0, 2.0 * math.pi)
+        r = radius * math.sqrt(rand.random())
+        x += r * math.cos(ang)
+        y += r * math.sin(ang)
+    yaw = math.radians(float(spawn.get("yaw_deg") or 0.0))
+    jitter = float(spawn.get("random_yaw_deg") or 0.0)
+    if jitter > 0.0:
+        yaw += math.radians(rand.uniform(-jitter, jitter))
+    z = float(spawn.get("z_m") or 0.125)
+    adr = getattr(sim, "qpos_adr", None)
+    if adr is None:
+        return info
+    sim.data.qpos[adr:adr + 7] = [x, y, z, math.cos(yaw / 2.0), 0.0, 0.0, math.sin(yaw / 2.0)]
+    sim.data.qvel[:] = 0.0
+    mujoco.mj_forward(sim.model, sim.data)
+    info["spawn"] = {"xy": [round(x, 3), round(y, 3)], "yaw_deg": round(math.degrees(yaw), 1)}
+    return info

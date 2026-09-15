@@ -92,8 +92,8 @@ def quat_rotate_inverse(quat, vec):
 
 class LocalSim:
     """Fallback physics when no X5 board is attached (server-side demo)."""
-    def __init__(self):
-        self.model = mujoco.MjModel.from_xml_path(str(SCENE_XML))
+    def __init__(self, xml_path=None):
+        self.model = mujoco.MjModel.from_xml_path(str(xml_path or SCENE_XML))
         self.model.opt.timestep = PHYS_DT
         self.data = mujoco.MjData(self.model)
         kt = 0.3459739511711113; lim = kt * 1.75
@@ -227,6 +227,78 @@ class Server:
                 print(f"[vlm] init failed: {exc}", flush=True)
                 self.vlm = None
 
+
+    # ---------------- hot scene reload ----------------
+    def reload_scene(self, scene_id):
+        """Swap the scene in-process, without restarting the server.
+
+        The old path shelled out to `service.py restart`, which took ~9 s and threw
+        away any running episode. Everything that is bound to the old MjModel must be
+        rebuilt: the physics sim, the render data, the cached MuJoCo Renderers (they
+        hold a model reference and an EGL context), and the VLM/agent hosts, which
+        capture sim and sensor objects at construction time. The ONNX policy bank is
+        model independent, so it is kept.
+        """
+        from duck_vlm.scenes import catalog
+        spec = catalog().load(scene_id)          # raises if the scene is unknown
+
+        # stop whatever is running against the old scene
+        try:
+            if self.vlm is not None:
+                self.vlm.loop.stop('scene_switch')
+        except Exception:
+            pass
+        self.control_mode = 'manual'
+        self.cmd_manual[:] = 0
+        self.cmd_auto[:] = 0
+
+        # release the cached renderers (EGL contexts live on the render thread)
+        def _drop_renderers():
+            for r, _cam in list(self._cam_renderer.values()):
+                try:
+                    r.close()
+                except Exception:
+                    pass
+            self._cam_renderer = {}
+        try:
+            self.render_exec.submit(_drop_renderers).result(timeout=10.0)
+        except Exception:
+            self._cam_renderer = {}
+
+        self.sim = LocalSim(spec.xml)
+        self.render_data = mujoco.MjData(self.sim.model)
+        self.scene_spec = spec
+        self.scene_id = scene_id
+        self.kick = LocalKick()
+        self.local_policy = 'alpha_stand'
+        self.local_command = np.zeros(3, dtype=np.float32)
+        self.local_time = 0.0
+        self.board_state = None
+        self.last_main_jpg = b''
+        self.last_scene_jpg = b''
+        self.last_headcam_jpg = b''
+        self.last_main_at = 0.0
+        self.last_scene_at = 0.0
+        self.last_headcam_at = 0.0
+
+        # hosts capture sim/sensor/task-manager at construction -> rebuild them
+        self.duck = None
+        self.vlm = None
+        if DUCKAGENT_ENABLE:
+            try:
+                from duck_agent.simhost import SimHost
+                self.duck = SimHost(self)
+            except Exception as exc:
+                print(f'[agent] reload failed: {exc}', flush=True)
+                self.duck = None
+        if DUCK_VLM_ENABLE:
+            try:
+                from duck_vlm.host import DuckVlmHost
+                self.vlm = DuckVlmHost(self)
+            except Exception as exc:
+                print(f'[vlm] reload failed: {exc}', flush=True)
+                self.vlm = None
+        return {'scene_id': scene_id, 'tasks': [t.get('id') for t in spec.list_tasks()]}
 
     # ---------------- replay / render ----------------
     def _sync_render_state(self):
@@ -691,17 +763,13 @@ class Server:
         except Exception as exc:
             return web.json_response({"ok": False, "error": str(exc)}, status=404)
         (HERE / ".duck_scene_id").write_text(scene_id + "\n", encoding="utf-8")
-        if data.get("restart", True):
-            def _restart():
-                subprocess.Popen(
-                    ["/usr/bin/python3", str(HERE / "service.py"), "restart"],
-                    cwd=str(HERE), env=os.environ.copy(), stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=True, close_fds=True,
-                )
-            asyncio.get_running_loop().call_later(0.8, _restart)
+        info = {}
+        try:
+            info = self.reload_scene(scene_id)
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=500)
         return web.json_response({"ok": True, "scene_id": spec.scene_id,
-                                  "restarting": bool(data.get("restart", True))})
+                                  "reloaded": True, **info})
 
     async def http_vlm(self, request):
         return web.FileResponse(HERE / "web/vlm.html")

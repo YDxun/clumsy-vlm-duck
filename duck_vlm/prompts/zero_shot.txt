@@ -31,7 +31,9 @@ CONTROL RULES:
   spin on the spot forever: after a few scans, move to a new vantage point (FWD through a doorway or
   along open floor) and scan again.
 - LOOK_DOWN keeps standing while pitching the head down so the duck-cam sees the ground just in
-  front of the duck; use it when a close target has dropped below the camera. HEAD_CENTER looks forward again.
+  front of the duck; LOOK_DOWN_MORE pitches it further for a target almost under the chin
+  (LOOK_DOWN covers about 0.15-0.45 m, LOOK_DOWN_MORE about 0.10-0.22 m).
+  HEAD_CENTER looks forward again.
 - Range and bearing are only reported while the duck-cam actually holds the target. If they are
   missing you are blind: sweep with TURN_L/TURN_R (or LOOK_DOWN when the target is very close)
   instead of guessing a direction through walls.

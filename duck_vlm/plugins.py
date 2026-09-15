@@ -247,6 +247,10 @@ class ExplorePlugin(DuckPlugin):
     # If the goal was on camera very recently, losing it is a local perception
     # problem (it dropped below the chin), not a reason to walk off exploring.
     SEEN_HOLD_STEPS = 8
+    # After the goal has been lost for a while, first go back to where it was last
+    # seen and look around, instead of resuming a long tour past it.
+    SEARCH_ARRIVE_M = 0.35
+    SEARCH_SWEEP_STEPS = 4
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled)
@@ -255,6 +259,10 @@ class ExplorePlugin(DuckPlugin):
         self._hold = 0
         self._last_step: int | None = None
         self._engaged = False
+        self._last_seen_xy: tuple[float, float] | None = None
+        self._searching = False
+        self._swept = 0
+        self._sweep_dir = "TURN_L"
 
     def set_waypoints(self, waypoints: Any) -> None:
         self.waypoints = [(float(w[0]), float(w[1])) for w in (waypoints or [])]
@@ -265,6 +273,9 @@ class ExplorePlugin(DuckPlugin):
         self._hold = 0
         self._last_step = None
         self._engaged = False
+        self._last_seen_xy = None
+        self._searching = False
+        self._swept = 0
 
     def _seen_hold(self, observation: VlmObservation) -> int:
         """Count down the "goal was just visible" hold; idempotent per step."""
@@ -273,6 +284,11 @@ class ExplorePlugin(DuckPlugin):
             self._last_step = step
             if observation.state.target_visible:
                 self._hold = self.SEEN_HOLD_STEPS
+                # Remember OUR OWN position at the sighting (odometry, not the
+                # target ground truth) so we can come back and search here.
+                self._last_seen_xy = (observation.state.x, observation.state.y)
+                self._searching = False
+                self._swept = 0
             elif self._hold > 0:
                 self._hold -= 1
         return self._hold
@@ -305,11 +321,25 @@ class ExplorePlugin(DuckPlugin):
             # so staying on it guarantees the duck heads for the opening rather
             # than drifting to whatever cell happens to be nearest.
             self._pending(observation.state)
+            if self._last_seen_xy is not None:
+                self._searching = True
+                self._swept = 0
         self._engaged = active
         return active
 
     def before_decision(self, observation: VlmObservation, context: dict[str, Any]) -> VlmObservation:
         if not self._active(observation) or observation.state.target_visible:
+            return observation
+        st = observation.state
+        if self._searching and self._last_seen_xy is not None:
+            sx, sy = self._last_seen_xy
+            if math.hypot(sx - st.x, sy - st.y) > self.SEARCH_ARRIVE_M:
+                hint = (f"SEARCH: the goal was last seen near ({sx:.2f},{sy:.2f}); go back there "
+                        f"and look around before exploring further.")
+            else:
+                hint = ("SEARCH: you are back where the goal was last seen. Sweep with "
+                        "TURN_L/TURN_R and use LOOK_DOWN/LOOK_DOWN_MORE if it may be under the chin.")
+            observation.subgoal = f"{observation.subgoal} {hint}".strip() if observation.subgoal else hint
             return observation
         wp = self._pending(observation.state)
         if wp is None:
@@ -331,6 +361,18 @@ class ExplorePlugin(DuckPlugin):
             return token
         if token not in self.LOCO:
             return token   # never hijack a skill token
+        # 1) local search around the last sighting takes priority over the tour
+        if self._searching and self._last_seen_xy is not None:
+            sx, sy = self._last_seen_xy
+            d = math.hypot(sx - state.x, sy - state.y)
+            if d > self.SEARCH_ARRIVE_M:
+                ang = math.atan2(sy - state.y, sx - state.x) - state.heading_rad
+                ang = (ang + math.pi) % (2 * math.pi) - math.pi
+                return ("TURN_L" if ang > 0 else "TURN_R") if abs(ang) > self.ALIGN_RAD else "FWD"
+            if self._swept < self.SEARCH_SWEEP_STEPS:
+                self._swept += 1
+                return self._sweep_dir
+            self._searching = False
         while self.index < len(self.waypoints):
             wx, wy = self.waypoints[self.index]
             dx, dy = wx - state.x, wy - state.y
@@ -352,7 +394,116 @@ class ExplorePlugin(DuckPlugin):
 
     def status(self) -> dict[str, Any]:
         return {"enabled": self.enabled, "index": self.index,
-                "waypoints": len(self.waypoints), "seen_hold": self._hold}
+                "waypoints": len(self.waypoints), "seen_hold": self._hold,
+                "searching": self._searching}
+
+
+class KickStationPlugin(DuckPlugin):
+    """Pick the stance before a kick: stand behind the object, on the far side from
+    the target zone, facing it - then let the model choose the kicking foot.
+
+    Geometry comes from two legitimate sources: the object's position is only used
+    while the duck-cam actually sees it (the sensor withholds it otherwise), and the
+    zone centre is static scene metadata. Nothing here reads a hidden target.
+    """
+
+    name = "kick_station"
+    # task id -> (object body, zone name)
+    STATION_TASKS = {
+        "kick_ball_to_zone": ("ball", "zone_green"),
+        "retrieve_ball": ("ball", "zone_green"),
+        "push_ball_around_obstacle": ("ball", "zone_green"),
+        "push_red_cube": ("obj_cube_red", "zone_blue"),
+    }
+    STANDOFF_M = 0.28
+    ARRIVE_M = 0.15
+    ALIGN_RAD = 0.22
+    SIDE_ROUTE_M = 0.45
+    BALL_CLEAR_M = 0.18
+
+    def __init__(self, enabled: bool = True):
+        super().__init__(enabled)
+        self.zones: dict[str, tuple[float, float]] = {}
+
+    def set_zones(self, zones: dict[str, Any]) -> None:
+        out = {}
+        for k, v in (zones or {}).items():
+            try:
+                out[str(k)] = (float(v[0]), float(v[1]))
+            except Exception:
+                continue
+        self.zones = out
+
+    def reset(self) -> None:
+        return None
+
+    def _plan(self, observation: VlmObservation):
+        """Return (approach_xy, direction_to_zone) or None when we must defer."""
+        task = observation.task_id or ""
+        pair = self.STATION_TASKS.get(task)
+        if pair is None:
+            return None
+        state = observation.state
+        obj = state.target_world_xyz
+        if obj is None:
+            return None            # blind: not our business, let explore/model handle
+        zone = self.zones.get(pair[1])
+        if zone is None:
+            return None
+        dx, dy = zone[0] - obj[0], zone[1] - obj[1]
+        norm = math.hypot(dx, dy)
+        if norm < 1e-6:
+            return None
+        ux, uy = dx / norm, dy / norm
+        approach = (obj[0] - ux * self.STANDOFF_M, obj[1] - uy * self.STANDOFF_M)
+        return approach, (ux, uy), (obj[0], obj[1])
+
+    def before_decision(self, observation: VlmObservation, context: dict[str, Any]) -> VlmObservation:
+        plan = self._plan(observation)
+        if plan is None:
+            return observation
+        approach, (ux, uy), _obj = plan
+        hint = (f"KICK STATION: stand behind the object on the far side from the zone, at "
+                f"({approach[0]:.2f},{approach[1]:.2f}), then face the direction to the zone "
+                f"({ux:+.2f},{uy:+.2f}) and kick it through.")
+        observation.subgoal = f"{observation.subgoal} {hint}".strip() if observation.subgoal else hint
+        return observation
+
+    def directive(self, observation: VlmObservation) -> str | None:
+        """Approach + fine alignment, resolved without a VLM round-trip."""
+        if not self.enabled:
+            return None
+        plan = self._plan(observation)
+        if plan is None:
+            return None
+        approach, (ux, uy), obj = plan
+        state = observation.state
+        dx, dy = approach[0] - state.x, approach[1] - state.y
+        dist = math.hypot(dx, dy)
+        if dist > self.ARRIVE_M:
+            # Route around the object if the straight line would shove it the wrong
+            # way (which happens whenever we are already on the zone side of it).
+            gx, gy = dx, dy
+            bx, by = obj[0] - state.x, obj[1] - state.y
+            bd = math.hypot(bx, by)
+            if bd > 1e-6:
+                proj = (bx * dx + by * dy) / (dist if dist > 1e-6 else 1.0)
+                if 0.0 < proj < dist and abs(bx * dy - by * dx) / (bd * dist if dist > 1e-6 else 1.0) < 1.0:
+                    side = 1.0 if (bx * uy - by * ux) > 0 else -1.0
+                    gx = obj[0] + (-uy) * side * self.SIDE_ROUTE_M - state.x
+                    gy = obj[1] + (ux) * side * self.SIDE_ROUTE_M - state.y
+            ang = math.atan2(gy, gx) - state.heading_rad
+            ang = (ang + math.pi) % (2 * math.pi) - math.pi
+            return ("TURN_L" if ang > 0 else "TURN_R") if abs(ang) > 0.35 else "FWD"
+        # at the stance: face exactly along object -> zone
+        err = math.atan2(uy, ux) - state.heading_rad
+        err = (err + math.pi) % (2 * math.pi) - math.pi
+        if abs(err) > self.ALIGN_RAD:
+            return "TURN_L" if err > 0 else "TURN_R"
+        return None      # lined up: let the model pick the foot and kick
+
+    def status(self) -> dict[str, Any]:
+        return {"enabled": self.enabled, "zones": sorted(self.zones)}
 
 
 class AffordancePlugin(DuckPlugin):
@@ -506,6 +657,7 @@ class PluginSuite:
             RecoveryPlugin(cfg.recovery),
             SearchAlignPlugin(cfg.search_align),
             ExplorePlugin(cfg.explore),
+            KickStationPlugin(cfg.kick_station),
             HumanTakeoverPlugin(cfg.human_takeover),
         ]
         return cls(cfg, plugins, {plugin.name: plugin for plugin in plugins})
@@ -528,11 +680,29 @@ class PluginSuite:
             if isinstance(plugin, ExplorePlugin):
                 plugin.set_waypoints(waypoints)
 
+    def set_zones(self, zones: dict[str, Any]) -> None:
+        for plugin in self.plugins:
+            if isinstance(plugin, KickStationPlugin):
+                plugin.set_zones(zones)
+
     def explore_directive(self, observation: VlmObservation) -> str | None:
         for plugin in self.plugins:
             if isinstance(plugin, ExplorePlugin):
                 return plugin.directive(observation)
         return None
+
+    def station_directive(self, observation: VlmObservation) -> str | None:
+        for plugin in self.plugins:
+            if isinstance(plugin, KickStationPlugin):
+                return plugin.directive(observation)
+        return None
+
+    # Only these tasks have "get to the target" as the objective, so walking at a
+    # visible target is unambiguously correct. Pose tasks (walk_turn_stop), object
+    # tasks (kick/push) and gaits must not be second-guessed here: walking at the
+    # ball would satisfy walk_turn_stop's distance but destroy its heading goal.
+    APPROACH_TASKS = ("walk_to_ball", "come_to_owner", "go_to_beacon",
+                      "search_ball_across_rooms", "rough_ground_walk")
 
     def reactive_directive(self, observation: VlmObservation) -> str | None:
         """Unambiguous long-range approach, resolved without a VLM round-trip.
@@ -545,15 +715,25 @@ class PluginSuite:
         """
         if not self.get("explore") or not self.get("search_align"):
             return None
+        if (observation.task_id or "") not in self.APPROACH_TASKS:
+            return None
         state = observation.state
         if not state.target_visible or state.target_bearing_rad is None:
             return None
         rng = state.target_range_m
-        if rng is None or rng < 0.45:
+        if rng is None:
             return None
-        if abs(state.target_bearing_rad) < 0.35:
-            return "FWD"
-        return "TURN_L" if state.target_bearing_rad > 0 else "TURN_R"
+        bearing = state.target_bearing_rad
+        if rng >= 0.45:
+            if abs(bearing) < 0.35:
+                return "FWD"
+            return "TURN_L" if bearing > 0 else "TURN_R"
+        # Final approach band (0.20~0.45 m): still unambiguous when we are
+        # squarely on the target, and each VLM round-trip here costs more than
+        # the step it would order. Kick/push tasks keep their own stance planner.
+        if rng < 0.20 or abs(bearing) > 0.30:
+            return None
+        return "FWD"
 
     def reset(self) -> None:
         for plugin in self.plugins:

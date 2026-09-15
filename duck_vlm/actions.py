@@ -43,6 +43,9 @@ ACTION_SPECS: dict[str, ActionSpec] = {
     # head_pitch increases = look down, neck_pitch increases = look up (verified FK).
     "LOOK_DOWN": ActionSpec("LOOK_DOWN", "Keep standing and pitch the head down to see the ground just in front of the duck", "head", 1.20, head_delta=(("neck_pitch", 0.0), ("head_pitch", 0.60), ("head_yaw", 0.0), ("head_roll", 0.0))),
     "HEAD_CENTER": ActionSpec("HEAD_CENTER", "Return the head to the neutral forward pose so the duck looks ahead again", "head", 0.90, head_delta=(("neck_pitch", 0.0), ("head_pitch", 0.0), ("head_yaw", 0.0), ("head_roll", 0.0))),
+    # Covers the very close blind spot: +0.60 rad sees 0.15~0.45 m, +1.00 rad sees
+    # 0.10~0.22 m, so the two stages together leave only <0.10 m unseen.
+    "LOOK_DOWN_MORE": ActionSpec("LOOK_DOWN_MORE", "Keep standing and pitch the head further down to see a target almost under the chin", "head", 1.20, head_delta=(("neck_pitch", 0.0), ("head_pitch", 1.00), ("head_yaw", 0.0), ("head_roll", 0.0))),
     "KICK_L": ActionSpec("KICK_L", "Run the left-foot ball-kick policy", "skill", 0.0, policy="ball_kick_left", request="kickL"),
     "KICK_R": ActionSpec("KICK_R", "Run the right-foot ball-kick policy", "skill", 0.0, policy="ball_kick_right", request="kickR"),
     "ROLL": ActionSpec("ROLL", "Run the roulade forward-roll policy", "skill", 0.0, policy="roulade"),
@@ -90,6 +93,9 @@ _ALIASES: dict[str, str] = {
     "HEAD_UP": "HEAD_CENTER",
     "RAISE_HEAD": "HEAD_CENTER",
     "抬头": "HEAD_CENTER",
+    "DEEP_LOOK_DOWN": "LOOK_DOWN_MORE",
+    "LOOK_DOWN_DEEP": "LOOK_DOWN_MORE",
+    "更深低头": "LOOK_DOWN_MORE",
     "头回正": "HEAD_CENTER",
     "KICK_LEFT": "KICK_L",
     "KICKLEFT": "KICK_L",
