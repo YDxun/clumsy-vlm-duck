@@ -113,7 +113,7 @@ class DuckVlmLoop:
         self._pending_observation = None
         self.active_task_id = ""
         if self.task_manager is not None:
-            task_def = self.task_manager.start(self.task)
+            task_def = self.task_manager.start(self.task, self.target)
             if task_def:
                 # Start the episode from the pose the task was designed around,
                 # otherwise a task can inherit the previous one's end state.

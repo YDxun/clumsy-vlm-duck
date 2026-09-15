@@ -9,6 +9,7 @@ import numpy as np
 from .config import LoopConfig, VLMConfig
 from .loop import DuckVlmLoop
 from .scenes import catalog
+from .intent import pick_target
 from .state import DuckStateSensor, reset_to_spawn
 from .task_manager import TaskManager
 from .vlm import VlmDecisionClient
@@ -101,6 +102,26 @@ class DuckVlmHost:
         except Exception:
             return
 
+    def infer_target(self, task_text: str) -> tuple[str, str | None]:
+        """Choose the body the sensor tracks, from the sentence itself.
+
+        Returns (body_name, the label that matched). Falls back to the scene ball so
+        an unparsed sentence still behaves like the previous default rather than
+        tracking nothing.
+        """
+        scene = self.scene
+        if scene is None:
+            return "ball", None
+        try:
+            hits = scene.scan_text(task_text)
+        except Exception:
+            return "ball", None
+        if not hits:
+            return "ball", None
+        # For "kick the ball into the green zone" the longer match is the zone, but
+        # the thing to act on is the ball, so prefer a non-zone entity there.
+        return pick_target(hits, task_text)
+
     def _state(self, target: str, sim_time: float):
         return self.sensor.snapshot(target, sim_time)
 
@@ -183,10 +204,18 @@ class DuckVlmHost:
         if isinstance(payload.get('plugins'), dict):
             self.loop.set_config({'plugins': payload['plugins']})
         if action == "start":
-            return self.loop.start(str(payload.get("task") or "explore the scene"),
-                                   str(payload.get("target") or "ball"),
-                                   auto_run=bool(payload.get("auto_run", True)),
-                                   record=payload.get("record"))
+            task_text = str(payload.get("task") or "explore the scene")
+            explicit = str(payload.get("target") or "").strip()
+            if explicit:
+                target, matched_on = explicit, None
+            else:
+                target, matched_on = self.infer_target(task_text)
+            state = self.loop.start(task_text, target,
+                                    auto_run=bool(payload.get("auto_run", True)),
+                                    record=payload.get("record"))
+            state["target_inferred_from"] = matched_on
+            state["target_auto"] = not bool(explicit)
+            return state
         if action == "pause":
             return self.loop.pause()
         if action == "resume":

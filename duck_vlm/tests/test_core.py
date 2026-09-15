@@ -510,5 +510,145 @@ class LocalSearchTest(unittest.TestCase):
         self.assertFalse(p.status()["searching"], "sweep is bounded")
 
 
+class IntentTest(unittest.TestCase):
+    def test_sentences_map_to_the_expected_intent(self):
+        from duck_vlm.intent import resolve_intent
+        cases = {
+            "go to the red cube and stop next to it": "approach",   # "stop" must not win
+            "kick the ball into the green zone": "manipulate",
+            "bring me the green cup please": "manipulate",
+            "walk forward then turn right and stop": "pose",
+            "get up and stand still": "recover",
+            "cross the narrow corridor": "gait",
+            "walk around the stranger": "orbit",
+        }
+        for text, want in cases.items():
+            self.assertEqual(resolve_intent("", text), want, text)
+
+    def test_curated_task_ids_keep_their_intent(self):
+        from duck_vlm.intent import is_blocking_intent
+        self.assertTrue(is_blocking_intent("walk_turn_stop", "turn right and stop"))
+        self.assertFalse(is_blocking_intent("walk_to_ball", "go to the ball"))
+
+
+class TargetInferenceTest(unittest.TestCase):
+    SCENE = "duck_scenes/scenes/duck_workspace_v1"
+
+    def setUp(self):
+        from duck_vlm.scenes import SceneCatalog
+        self.scene = SceneCatalog().load("duck_workspace_v1")
+
+    def _infer(self, text):
+        from duck_vlm.intent import pick_target
+        return pick_target(self.scene.scan_text(text), text)
+
+    def test_english_object_phrasings(self):
+        self.assertEqual(self._infer("go to the red cube and stop next to it")[0], "obj_cube_red")
+        self.assertEqual(self._infer("bring me the green cup please")[0], "obj_cup_green")
+        # the ball is what gets kicked, not the zone it goes into
+        self.assertEqual(self._infer("kick the ball into the green zone")[0], "ball")
+
+    def test_chinese_phrasings(self):
+        self.assertEqual(self._infer("把红方块推到蓝色区域")[0], "obj_cube_red")
+        self.assertEqual(self._infer("去绿色区域等我来")[0], "zone_green")
+        self.assertEqual(self._infer("走到橙色球旁边")[0], "ball")
+
+    def test_unknown_text_falls_back_to_the_ball(self):
+        self.assertEqual(self._infer("do a little dance")[0], "ball")
+
+    def test_colour_stays_bound_to_its_own_noun(self):
+        # "红方块 ... 蓝色区域" must not resolve the blue cube
+        hits = self.scene.scan_text("把红方块推到蓝色区域")
+        bodies = [b for _l, b, _k in hits]
+        self.assertIn("obj_cube_red", bodies)
+        self.assertNotIn("obj_cube_blue", bodies)
+
+
+class SemanticTaskTest(unittest.TestCase):
+    def setUp(self):
+        from duck_vlm.scenes import SceneCatalog
+        self.scene = SceneCatalog().load("duck_workspace_v1")
+
+    def test_free_text_approach_reuses_the_ball_task(self):
+        t = self.scene.match_task_semantic("go over to the orange ball", "ball")
+        self.assertIsNotNone(t, "should reuse a curated task so the run is scored")
+        self.assertEqual(t["id"], "walk_to_ball")
+
+    def test_free_text_kick_reuses_the_kick_task(self):
+        t = self.scene.match_task_semantic("kick the orange ball into the green area", "ball")
+        self.assertIsNotNone(t)
+        self.assertEqual(t["id"], "kick_ball_to_zone")
+
+    def test_beacon_sentence_reaches_the_beacon(self):
+        hits = self.scene.scan_text("walk to the yellow beacon")
+        self.assertIn("beacon_target", [b for _l, b, _k in hits])
+
+    def test_gait_sentence_without_an_entity_is_not_forced_into_a_ball_task(self):
+        self.assertIsNone(self.scene.match_task_semantic("cross the shaky ramp without falling", "ball"))
+
+
+class NegationTest(unittest.TestCase):
+    def test_negated_object_is_not_tracked(self):
+        from duck_vlm.intent import pick_target, resolve_intent
+        from duck_vlm.scenes import SceneCatalog
+        scene = SceneCatalog().load("duck_workspace_v1")
+        text = "don't go near the blue cube"
+        self.assertEqual(resolve_intent("", text), "avoid")
+        body, _label = pick_target(scene.scan_text(text), text)
+        self.assertEqual(body, "ball", "must not start chasing what we were told to avoid")
+
+
+class SkillTokenTest(unittest.TestCase):
+    def test_sit_and_stand_up_are_registered(self):
+        self.assertIn("SIT", TOKENS)
+        self.assertIn("STAND_UP", TOKENS)
+
+    def test_sit_is_offered_when_its_policy_is_loaded(self):
+        self.assertIn("SIT", available_tokens({"alpha_sitstand": object()}))
+
+    def test_stand_up_is_hidden_until_a_policy_exists(self):
+        # no alpha_standup in the pack yet -> the duck must not be offered the skill
+        self.assertNotIn("STAND_UP", available_tokens({"alpha_sitstand": object()}))
+        self.assertIn("STAND_UP", available_tokens({"alpha_standup": object()}))
+
+
+class SemanticPluginTest(unittest.TestCase):
+    def _obs(self, text, task_id="", target="ball", visible=True):
+        state = DuckState(sim_time=0.0, x=0.0, y=0.0, z=0.12, heading_rad=0.0,
+                          linear_speed_mps=0.0, angular_speed_rps=0.0, upright=1.0,
+                          fallen=False, target_name=target)
+        state.target_visible = visible
+        state.target_range_m = 1.0 if visible else None
+        state.target_bearing_rad = 0.0 if visible else None
+        state.target_world_xyz = (1.0, 0.0, 0.035) if visible else None
+        return VlmObservation(task=text, task_id=task_id, target=target, image_jpeg=b"",
+                              state=state, step_index=0, recent_actions=[])
+
+    def test_station_engages_on_free_text_manipulation(self):
+        suite = PluginSuite.build(PluginConfig())
+        suite.set_zones({"zone_green": (2.0, 0.0)})
+        obs = self._obs("kick the ball into the green zone", target="ball")
+        self.assertIsNotNone(suite.station_directive(obs),
+                             "free-text kick wording should get the stance planner")
+
+    def test_station_stays_off_for_a_plain_approach(self):
+        suite = PluginSuite.build(PluginConfig())
+        suite.set_zones({"zone_green": (2.0, 0.0)})
+        obs = self._obs("go to the red cube", target="obj_cube_red")
+        self.assertIsNone(suite.station_directive(obs))
+
+    def test_explore_yields_for_free_text_pose_and_recover(self):
+        suite = PluginSuite.build(PluginConfig())
+        suite.set_waypoints([(0.0, 0.0), (1.0, 0.0)])
+        for text in ("turn right and stop", "get up and stand still"):
+            obs = self._obs(text, visible=False)
+            self.assertIsNone(suite.explore_directive(obs), text)
+
+    def test_reactive_fast_path_accepts_free_text_approach(self):
+        suite = PluginSuite.build(PluginConfig())
+        obs = self._obs("go to the red cube and stop next to it", target="obj_cube_red")
+        self.assertEqual(suite.reactive_directive(obs), "FWD")
+
+
 if __name__ == "__main__":
     unittest.main()

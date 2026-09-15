@@ -1,4 +1,4 @@
-﻿"""Adapter around the scene pack's execution-based TaskEvaluator."""
+"""Adapter around the scene pack's execution-based TaskEvaluator."""
 from __future__ import annotations
 
 import importlib.util
@@ -39,10 +39,17 @@ class TaskManager:
     def available(self) -> bool:
         return self.scene is not None and self._module is not None
 
-    def start(self, task_text: str) -> dict[str, Any] | None:
+    def start(self, task_text: str, target: str | None = None) -> dict[str, Any] | None:
         if not self.available or self.scene is None:
             return None
         task = self.scene.match_task(task_text)
+        if task is None:
+            # Free-form prompt: reuse whichever curated task grades the same object, so
+            # the episode still gets truth-based scoring instead of running blind.
+            try:
+                task = self.scene.match_task_semantic(task_text, target)
+            except Exception:
+                task = None
         if task is None:
             self.evaluator = None
             self.task = None

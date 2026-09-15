@@ -49,6 +49,12 @@ ACTION_SPECS: dict[str, ActionSpec] = {
     "KICK_L": ActionSpec("KICK_L", "Run the left-foot ball-kick policy", "skill", 0.0, policy="ball_kick_left", request="kickL"),
     "KICK_R": ActionSpec("KICK_R", "Run the right-foot ball-kick policy", "skill", 0.0, policy="ball_kick_right", request="kickR"),
     "ROLL": ActionSpec("ROLL", "Run the roulade forward-roll policy", "skill", 0.0, policy="roulade"),
+    # SIT uses alpha_sitstand, which ships with the scene pack. STAND_UP is wired to
+    # alpha_standup; that policy does not exist yet, and available_tokens() hides a
+    # skill token whose policy is not loaded, so the duck is never offered a skill
+    # it cannot perform. Train/export a stand-up ONNX and the token lights up.
+    "SIT": ActionSpec("SIT", "Sit down using the sit-stand policy, then hold", "skill", 0.0, policy="alpha_sitstand", request="sit"),
+    "STAND_UP": ActionSpec("STAND_UP", "Get back up onto the feet after a fall", "skill", 0.0, policy="alpha_standup", request="standup"),
     "DANCE": ActionSpec("DANCE", "Run the happy-hop dance policy", "skill", 0.0, policy="happy_hop"),
     "DONE": ActionSpec("DONE", "Declare the task complete and stop", "terminal", 0.0, terminal=True),
 }
@@ -106,6 +112,12 @@ _ALIASES: dict[str, str] = {
     "ROULADE": "ROLL",
     "FORWARD_ROLL": "ROLL",
     "翻滚": "ROLL",
+    "坐下": "SIT",
+    "sit down": "SIT",
+    "站起来": "STAND_UP",
+    "起身": "STAND_UP",
+    "get up": "STAND_UP",
+    "stand up": "STAND_UP",
     "HAPPY_HOP": "DANCE",
     "DANCING": "DANCE",
     "跳舞": "DANCE",

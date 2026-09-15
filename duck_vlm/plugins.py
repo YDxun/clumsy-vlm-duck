@@ -8,6 +8,8 @@ import math
 from typing import Any, Deque
 
 from .config import PluginConfig
+from .intent import is_blocking_intent, resolve_intent
+from .scenes import label_in_text
 from .types import DuckState, VlmObservation
 
 try:
@@ -327,6 +329,10 @@ class ExplorePlugin(DuckPlugin):
         if (observation.task_id or "") in self.SKIP_TASKS:
             self._engaged = False
             return False
+        # Free-form tasks: decide from the wording instead of requiring a known id.
+        if is_blocking_intent(observation.task_id or "", observation.task or ""):
+            self._engaged = False
+            return False
         active = hold == 0
         if active and not self._engaged:
             # Resume the tour in order. The waypoint list is built doorway-first,
@@ -456,9 +462,21 @@ class KickStationPlugin(DuckPlugin):
     def _plan(self, observation: VlmObservation):
         """Return (approach_xy, direction_to_zone) or None when we must defer."""
         task = observation.task_id or ""
+        text = observation.task or ""
         pair = self.STATION_TASKS.get(task)
         if pair is None:
-            return None
+            # Not a curated task: fall back to wording. Needs a manipulation verb
+            # and a zone the scene actually declares.
+            if resolve_intent(task, text) != "manipulate":
+                return None
+            zone = None
+            for name in self.zones:
+                if name and label_in_text(name, text):
+                    zone = name
+                    break
+            if zone is None:
+                return None
+            pair = (observation.target or "ball", zone)
         state = observation.state
         obj = state.target_world_xyz
         if obj is None:
@@ -734,8 +752,11 @@ class PluginSuite:
         """
         if not self.get("explore") or not self.get("search_align"):
             return None
-        if (observation.task_id or "") not in self.APPROACH_TASKS:
-            return None
+        task_id = observation.task_id or ""
+        if task_id not in self.APPROACH_TASKS:
+            # free-form: only an approach-flavoured sentence gets the fast path
+            if resolve_intent(task_id, observation.task or "") != "approach":
+                return None
         state = observation.state
         if not state.target_visible or state.target_bearing_rad is None:
             return None

@@ -144,6 +144,7 @@ objects:
   - orange ball
   - 橙色球
   - ball
+  - 球
   affordances:
   - kick
   - push
@@ -169,6 +170,10 @@ objects:
 zones:
 - id: red
   body: zone_red
+  semantic_labels:
+  - red zone
+  - 红色区域
+  - 红色区
   radius_m: 0.25
   center:
   - -1.7
@@ -176,6 +181,10 @@ zones:
   - 0.003
 - id: blue
   body: zone_blue
+  semantic_labels:
+  - blue zone
+  - 蓝色区域
+  - 蓝色区
   radius_m: 0.25
   center:
   - 0.0
@@ -183,6 +192,10 @@ zones:
   - 0.003
 - id: green
   body: zone_green
+  semantic_labels:
+  - green zone
+  - 绿色区域
+  - 绿色区
   radius_m: 0.25
   center:
   - 1.9
@@ -196,6 +209,12 @@ beacon:
   - 0.2
   radius_m: 0.025
   half_height_m: 0.2
+  semantic_labels:
+  - beacon
+  - yellow beacon
+  - 黄色信标
+  - 信标
+  - 黄色标记
 cameras:
 - name: cam_overhead
   pos:

@@ -36,7 +36,7 @@ import onnxruntime as ort
 from PIL import Image
 import io
 from aiohttp import web, WSMsgType
-from local_kick import LocalKick, KICK_POLICIES, TRICK_POLICIES
+from local_kick import LocalKick, KICK_POLICIES, TRICK_POLICIES, POSE_POLICIES
 
 HERE = Path(__file__).resolve().parent
 SCENE_XML = HERE / "microduck_rl/src/mjlab_microduck/robot/microduck/scene_pretty.xml"
@@ -153,7 +153,7 @@ class PolicyBank:
         so = ort.SessionOptions(); so.intra_op_num_threads = 1; so.inter_op_num_threads = 1
         so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL; so.log_severity_level = 3
         self.sessions = {}
-        for name in ("alpha_walking", "alpha_stand", *KICK_POLICIES.values(), *TRICK_POLICIES.values()):
+        for name in ("alpha_walking", "alpha_stand", *KICK_POLICIES.values(), *TRICK_POLICIES.values(), *POSE_POLICIES.values()):
             try:
                 s = ort.InferenceSession(str(POLICY_DIR / f"{name}.onnx"), sess_options=so,
                                          providers=["CPUExecutionProvider"])
@@ -161,7 +161,7 @@ class PolicyBank:
                 assert s.get_outputs()[0].shape == [1, 14], 'expected output [1,14]'
                 self.sessions[name] = (s, s.get_inputs()[0].name, s.get_outputs()[0].name)
             except Exception as exc:
-                if name not in KICK_POLICIES.values():
+                if name not in (*KICK_POLICIES.values(), *POSE_POLICIES.values()):
                     raise
                 print(f'[policy] {name} unavailable: {exc}', flush=True)
 

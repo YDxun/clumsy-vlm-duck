@@ -1,4 +1,4 @@
-﻿"""Scene-pack discovery and metadata-aware entity resolution."""
+"""Scene-pack discovery and metadata-aware entity resolution."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,6 +36,55 @@ def _default_root() -> Path | None:
 
 def _norm(text: Any) -> str:
     return re.sub(r"[\s_\-]+", " ", str(text or "").strip().lower())
+
+
+# Users rarely phrase an object the way the scene file does: the pack says
+# "红色方块" and a person says "红方块". Rather than enumerate aliases per object,
+# accept a match when the colour word and the noun both appear in the sentence.
+_COLORS = {
+    "red": ("red", "红"), "blue": ("blue", "蓝"), "green": ("green", "绿"),
+    "orange": ("orange", "橙"), "yellow": ("yellow", "黄"),
+}
+_NOUNS = {
+    "cube": ("cube", "block", "box", "方块", "立方体"),
+    "ball": ("ball", "sphere", "球"),
+    "cup": ("cup", "cylinder", "杯", "圆柱", "筒"),
+    "zone": ("zone", "area", "区域"),
+    "beacon": ("beacon", "marker", "信标", "标记"),
+}
+
+
+def label_in_text(label: str, text: str) -> bool:
+    """True when the text names this entity, exactly or loosely."""
+    token = _norm(label)
+    if token and token in _norm(text):
+        return True
+    return _loose_entity_match(label, text)
+
+
+def _loose_entity_match(label: str, text: str) -> bool:
+    """True when the label's colour and noun occur *next to each other*.
+
+    Adjacency matters: "把红方块推到蓝色区域" mentions a red cube and a blue zone,
+    so a bag-of-words test would also match "蓝色方块" and pick the wrong object.
+    Comparing on a space-stripped copy catches "red cube"/"红方块" while keeping
+    the colour bound to its own noun.
+    """
+    lab = _norm(label)
+    compact = re.sub(r"\s+", "", _norm(text))
+    if not lab or not compact:
+        return False
+    have_colors = [c for c, ws in _COLORS.items() if any(w in lab for w in ws)]
+    have_nouns = [n for n, ws in _NOUNS.items() if any(w in lab for w in ws)]
+    if not have_colors or not have_nouns:
+        return False
+    for c in have_colors:
+        for n in have_nouns:
+            for cw in _COLORS[c]:
+                for nw in _NOUNS[n]:
+                    if (cw + nw) in compact or (nw + cw) in compact:
+                        return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -103,6 +152,100 @@ class SceneSpec:
             if name and name in q:
                 return body
         return None
+
+    def entity_names(self) -> list[tuple[str, str, str]]:
+        """(label, body, kind) for every addressable entity, longest label first.
+
+        The kind lets a caller separate the thing to act on from the place to put it.
+        """
+        out: list[tuple[str, str, str]] = []
+        for kind, key in (("object", "objects"), ("person", "people"), ("zone", "zones")):
+            for item in self.metadata.get(key) or []:
+                body = item.get("body") or item.get("id")
+                if not body:
+                    continue
+                for name in (item.get("id"), body, *(item.get("semantic_labels") or [])):
+                    if name:
+                        out.append((str(name), str(body), kind))
+        beacon = self.metadata.get("beacon") or {}
+        if beacon.get("body"):
+            for name in (beacon.get("body"), *(beacon.get("semantic_labels") or [])):
+                if name:
+                    out.append((str(name), str(beacon["body"]), "beacon"))
+        out.sort(key=lambda nbk: len(_norm(nbk[0])), reverse=True)
+        return out
+
+    def scan_text(self, text: str) -> list[tuple[str, str, str]]:
+        """Entities named in the text, most specific label first."""
+        q = _norm(text)
+        if not q:
+            return []
+        hits: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for label, body, kind in self.entity_names():
+            if body in seen:
+                continue
+            if label_in_text(label, text):
+                seen.add(body)
+                hits.append((label, body, kind))
+        return hits
+
+    def match_task_semantic(self, text: str, target: str | None = None) -> dict[str, Any] | None:
+        """Fallback for free-form prompts: reuse the curated task that grades the same
+        object (and zone, when the sentence names one), so the episode is still scored
+        by the scene evaluator instead of running blind."""
+        from .intent import resolve_intent
+        intent = resolve_intent("", text)
+        # Only approach/manipulate can be graded by the curated tasks. A gait, pose,
+        # orbit or recovery sentence has no matching success condition, and grading it
+        # with, say, walk_to_ball would report a meaningless pass.
+        if intent not in ("approach", "manipulate"):
+            return None
+        zone = None
+        for _label, body, kind in self.scan_text(text):
+            if kind == "zone":
+                zone = body
+                break
+        best: dict[str, Any] | None = None
+        best_score = 0
+        for task in self.list_tasks():
+            refs = self._task_refs(task)
+            score = 0
+            if target and target in refs["targets"]:
+                score += 2
+            if zone and zone in refs["zones"]:
+                score += 1
+            if not score:
+                continue
+            if intent == "manipulate":
+                if not refs["zones"]:
+                    continue          # a kick/push that grades nothing moving is the wrong task
+                score += 1
+            if score > best_score:
+                best, best_score = task, score
+        return best if best_score >= 2 else None
+
+    def _task_refs(self, task: dict[str, Any]) -> dict[str, set[str]]:
+        targets: set[str] = set()
+        zones: set[str] = set()
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                if node.get("type") == "body_in_zone":
+                    if node.get("body"):
+                        targets.add(str(node["body"]))
+                    if node.get("zone"):
+                        zones.add(str(node["zone"]))
+                elif node.get("type") and node.get("target"):
+                    targets.add(str(node["target"]))
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(task.get("success"))
+        return {"targets": targets, "zones": zones}
 
     def resolve_zone(self, query: str) -> str | None:
         q = _norm(query)
