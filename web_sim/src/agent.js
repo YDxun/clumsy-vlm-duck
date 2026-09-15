@@ -22,7 +22,7 @@ import { applyRules, reflexToken, DEFAULT_RULES } from "./rules.js";
 import { askVlm, PROVIDERS } from "./llm.js";
 import { parseToken, TOKENS, availableTokens } from "./actions.js";
 import { resolveIntent, pickTarget } from "./intent.js";
-import { StationKicker, planStation } from "./station.js";
+import { StationKicker, Pusher, planStation } from "./station.js";
 
 const DEG = 180 / Math.PI;
 
@@ -55,6 +55,8 @@ export class DuckAgent {
     this.policies = {};             // 策略名 -> session，决定哪些技能 token 能发给模型
     // 踢球/推球站位：见到球就算一次站位，之后由规则闭环把最后 20 cm 走完
     this.station = new StationKicker();
+    this.pusher = new Pusher();
+    this.manipulationMode = "auto";   // auto | push | kick
     this.stationEnabled = true;
     this.stationZone = null;
     this.phase = "idle";            // idle | thinking | acting | finished | error
@@ -100,6 +102,13 @@ export class DuckAgent {
     this.interpreter.resetHead();
     this.stationZone = (this.scene && this.scene.zoneFor(taskText)) || null;
     this.station.reset();
+    this.pusher.reset();
+    // 推还是踢：按任务语义自动选（"推/push/retrieve" → 推；"踢/kick" → 踢），也能手动指定
+    const wantsPush = /推|push|retrieve|带来|带走/i.test(taskText + " " + taskId);
+    const wantsKick = /踢|kick/i.test(taskText + " " + taskId);
+    this.manipMode = this.manipulationMode === "auto"
+      ? (wantsKick && !wantsPush ? "kick" : "push")
+      : this.manipulationMode;
     return this.task;
   }
 
@@ -137,6 +146,24 @@ export class DuckAgent {
       }
     }
     return this.station.tick({ duckPose: this.duck.pose, ballXy, zone: this.stationZone });
+  }
+
+  /** 推东西：见物体才喂观测，其余靠锁存的计划推进（棘轮式：推几轮退回来重看一眼）。 */
+  pusherTick() {
+    if (this.duck.upright() < 0.55) {
+      this.pusher.note = "鸭子倒了，先停住";
+      return { cmd: [0, 0, 0], phase: "fallen", note: this.pusher.note, done: false };
+    }
+    const needObs = !this.pusher.latched || this.pusher.needObserve;
+    let objXy = null;
+    if (needObs && (this.duck.steps - (this._pushObsStep ?? -999)) > 25) {
+      this._pushObsStep = this.duck.steps;
+      const s = this.sensor.snapshot(this.task.target, this.duck.steps * 0.02);
+      if (s.targetVisible && s.targetWorldXyz) {
+        objXy = { x: s.targetWorldXyz[0], y: s.targetWorldXyz[1] };
+      }
+    }
+    return this.pusher.tick({ duckPose: this.duck.pose, objXy, zone: this.stationZone });
   }
 
   /** 任务进度 verbalization：用真实单位报出还差多远、航向差多少。 */
@@ -316,6 +343,20 @@ export class DuckAgent {
 
     // 站位优先：操作类任务的最后 20 cm 交给规则闭环，别让 VLM 用 0.07 m 的步子去对 1.5 cm 的容差
     if (this.stationApplies()) {
+      // —— 推东西：宽松得多，先走这条
+      if (this.manipMode === "push") {
+        const ps = this.pusherTick();
+        this.lastNote = ps.note;
+        if (ps.done) {
+          this.phase = "finished";
+          this.lastNote = `任务完成：${ps.note}`;
+          return { cmd: [0, 0, 0], headDelta: null, phase: "finished" };
+        }
+        if (ps.phase !== "no-plan") {
+          return { cmd: ps.cmd, headDelta: null, phase: "push:" + ps.phase };
+        }
+        // 还没看见物体 → 掉回正常决策去找
+      } else {
       const st = this.stationTick();
       this.lastNote = st.note;
       if (st.done) {
@@ -339,6 +380,7 @@ export class DuckAgent {
       }
       if (st.phase !== "no-plan") {
         return { cmd: st.cmd, headDelta: null, phase: "station:" + st.phase };
+      }
       }
       // no-plan：还没看见球 → 掉回正常决策（模型/规则去找球）
     }

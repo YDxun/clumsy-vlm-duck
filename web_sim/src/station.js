@@ -178,3 +178,144 @@ export class StationKicker {
     return { cmd: [0, 0, 0], kick: true, phase: this.phase, note: this.note };
   }
 }
+
+/**
+ * 推东西 —— 复用同一套站位几何，但宽松得多。
+ *
+ * 和踢球的区别：
+ *   · 不需要 1.5 cm 站位精度：站在物体背向目标的一侧，走进去顶住就行；
+ *   · 不需要"起脚瞬间静止"：推本来就是持续接触；
+ *   · 方向由站位决定，推的时候只管往前走。
+ *
+ * 难点还是**看不见**：推的时候物体就在脚前，早掉出画面（<0.14 m 出画）。
+ * 所以走"棘轮"策略：推几轮 → 后退到看得见的地方 → 重新观测、重算直线 → 再推。
+ * 慢，但每一步都基于真实观测，不读任何真值。
+ */
+export class Pusher {
+  constructor({
+    approachStandoffM = 0.42,
+    contactStandoffM = 0.13,
+    contactTolM = 0.035,
+    observeBackoffM = 0.42,
+    pushesPerObserve = 3,
+    driftTolM = 0.10,
+    turnRate = 1.15,
+  } = {}) {
+    Object.assign(this, { approachStandoffM, contactStandoffM, contactTolM,
+                          observeBackoffM, pushesPerObserve, driftTolM, turnRate });
+    this.reset();
+  }
+
+  reset() {
+    this.phase = "idle";
+    this.note = "";
+    // 注意别用 this.plan —— 那是类上的 plan() 方法，赋值会把它覆盖掉
+    this.latched = null;
+    this.wpIndex = 0;
+    this.pulse = 0;
+    this.pushes = 0;
+    this.needObserve = false;
+    this.done = false;
+  }
+
+  /** 站位点/接触点都在物体背向目标那一侧。 */
+  plan(objXy, zoneXy) {
+    const u = Math.atan2(zoneXy.y - objXy.y, zoneXy.x - objXy.x);
+    const c = Math.cos(u), s = Math.sin(u);
+    return {
+      dir: u, zone: { ...zoneXy }, obj: { ...objXy },
+      approach: { x: objXy.x - c * this.approachStandoffM, y: objXy.y - s * this.approachStandoffM },
+      contact: { x: objXy.x - c * this.contactStandoffM, y: objXy.y - s * this.contactStandoffM },
+      objToZone: Math.hypot(zoneXy.x - objXy.x, zoneXy.y - objXy.y),
+    };
+  }
+
+  tick({ duckPose, objXy, zone }) {
+    if (objXy && Math.hypot(objXy.x - zone.x, objXy.y - zone.y) <= (zone.radius ?? 0.3)) {
+      this.phase = "done";
+      this.done = true;
+      this.note = `已推进区域 (${objXy.x.toFixed(2)},${objXy.y.toFixed(2)})`;
+      return { cmd: [0, 0, 0], phase: this.phase, note: this.note, done: true };
+    }
+    if (objXy) {
+      const moved = this.latched
+        ? Math.hypot(objXy.x - this.latched.obj.x, objXy.y - this.latched.obj.y) : Infinity;
+      if (!this.latched || moved > this.driftTolM || this.needObserve) {
+        this.latched = this.plan(objXy, zone);
+        this.wpIndex = 0;
+        this.needObserve = false;
+      }
+    }
+    if (!this.latched) {
+      this.phase = "no-plan";
+      return { cmd: [0, 0, 0], phase: this.phase, note: "还没看到物体，交给探索/模型去找", done: false };
+    }
+    const p = this.latched;
+
+    // 棘轮：退到看得见的位置，等下一次观测
+    if (this.needObserve) {
+      const back = { x: p.obj.x - Math.cos(p.dir) * this.observeBackoffM,
+                     y: p.obj.y - Math.sin(p.dir) * this.observeBackoffM };
+      const d = Math.hypot(back.x - duckPose.x, back.y - duckPose.y);
+      const turn = this._turnTo(back, duckPose);
+      // 安全阀：后退点不该离自己太远（>1.2 m 说明锁存的物体位置已经过期，
+      // 再走过去就是瞎跑）。直接丢掉计划，等下一次观测重算。
+      if (d > 1.2) {
+        this.latched = null;
+        this.needObserve = false;
+        this.phase = "no-plan";
+        return { cmd: [0, 0, 0], phase: this.phase, note: "锁存位置过期，等重新观测", done: false };
+      }
+      this.phase = "observe";
+      if (d < 0.09 && turn === 0) {
+        this.note = "到位等待重新观测";
+        return { cmd: [0, 0, 0], phase: this.phase, note: this.note, done: false };
+      }
+      this.note = `后退观测，还差 ${d.toFixed(2)} m`;
+      return { cmd: [turn !== 0 ? 0 : -DRIVE_SPEED, 0, turn], phase: this.phase, note: this.note, done: false };
+    }
+
+    const waypoints = [
+      { name: "approach", xy: p.approach, tol: 0.08, drive: 3, coast: 1 },
+      { name: "contact", xy: p.contact, tol: this.contactTolM, drive: 1, coast: 1 },
+    ];
+    if (this.wpIndex < waypoints.length) {
+      const wp = waypoints[this.wpIndex];
+      const dist = Math.hypot(wp.xy.x - duckPose.x, wp.xy.y - duckPose.y);
+      if (dist <= wp.tol) { this.wpIndex += 1; }
+      else {
+        const err = wrap(Math.atan2(wp.xy.y - duckPose.y, wp.xy.x - duckPose.x) - duckPose.heading);
+        this.phase = wp.name;
+        if (Math.abs(err) > 0.25) {
+          this.note = `${wp.name}: 转向（差 ${(Math.abs(err) / DEG).toFixed(0)}°）`;
+          return { cmd: [0, 0, Math.sign(err) * this.turnRate], phase: this.phase, note: this.note, done: false };
+        }
+        this.pulse += 1;
+        const armed = (this.pulse % (wp.drive + wp.coast)) < wp.drive;
+        this.note = `${wp.name}: ${armed ? "迈步" : "站定"}，还差 ${dist.toFixed(2)} m`;
+        return { cmd: [armed ? DRIVE_SPEED : 0, 0, Math.sign(err) * Math.min(0.35, Math.abs(err))],
+                 phase: this.phase, note: this.note, done: false };
+      }
+    }
+
+    const headErr = wrap(p.dir - duckPose.heading);
+    if (Math.abs(headErr) > 0.10) {
+      this.phase = "align";
+      this.note = `推前对准（差 ${(Math.abs(headErr) / DEG).toFixed(0)}°）`;
+      return { cmd: [0, 0, Math.sign(headErr) * this.turnRate], phase: this.phase, note: this.note, done: false };
+    }
+    this.phase = "push";
+    this.pushes += 1;
+    if (this.pushes >= this.pushesPerObserve) { this.pushes = 0; this.needObserve = true; }
+    // 轻推：走一拍停两拍。球是圆的，连续走会把球推飞（实测一次推出 1.9 m 直接滚过界）。
+    this.pulse += 1;
+    const armed = (this.pulse % 3) === 0;
+    this.note = `推（第 ${this.pushes || this.pushesPerObserve}/${this.pushesPerObserve} 轮，${armed ? "推进" : "等球停"}）`;
+    return { cmd: [armed ? DRIVE_SPEED : 0, 0, 0], phase: this.phase, note: this.note, done: false };
+  }
+
+  _turnTo(target, duckPose) {
+    const err = wrap(Math.atan2(target.y - duckPose.y, target.x - duckPose.x) - duckPose.heading);
+    return Math.abs(err) > 0.25 ? Math.sign(err) * this.turnRate : 0;
+  }
+}
