@@ -370,7 +370,17 @@ window.__sim = {
   /** 切换指令来源：true = 决策层（agent），false = 手动按钮。 */
   setDriver(useAgent) { driver.agent = !!useAgent; },
   /** agent 配置（BYO key、模式等）。 */
-  configureAgent(patch) { Object.assign(agent.config, patch); return { ...agent.config }; },
+  configureAgent(patch) {
+    Object.assign(agent.config, patch);
+    // 让界面上的模式按钮跟着走，否则用脚本配好 VLM 模式、界面上还亮着「规则模式」
+    if (patch.mode) {
+      for (const b of document.querySelectorAll("[data-decmode]")) {
+        b.classList.toggle("on", b.dataset.decmode === patch.mode);
+      }
+      $("llm-box").hidden = patch.mode !== "llm";
+    }
+    return { ...agent.config };
+  },
   setTask(opts) { agent.records.length = 0; return agent.setTask(opts); },
   /**
    * 跑一段**完整闭环**：决策 -> 规则 -> 解释器 -> 物理，直到跑够决策数或步数。
@@ -390,8 +400,11 @@ window.__sim = {
       await duck.stepAsync(out.cmd, out.headDelta);
       steps++;
       runLog.push(`${agent.phase}:${out.cmd.map((v) => v.toFixed(2)).join(",")}`);
-      view.frame();
+      // 每 10 步才重绘一次：无头 Chrome 走的是软件光栅化，逐帧重绘会把测试时间
+      // 拖成十几分钟（630 步 ≈ 160 s）。相机是按需渲的，抓图和遮挡判断不受影响。
+      if (steps % 10 === 0) view.frame();
     }
+    view.frame();
     driver.agent = false;
     return {
       steps, decisions: agent.records.length, phase: agent.phase,

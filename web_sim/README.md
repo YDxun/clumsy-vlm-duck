@@ -100,6 +100,7 @@ web_sim/
 │   ├── test_agent.mjs      # 纯 Node：决策层 87 项单元测试
 │   ├── verify_agent.mjs    # 真 Chrome：33 项闭环断言（含真 HTTP + 跨域）
 │   ├── verify_page.mjs     # 真 Chrome：30 项页面断言（点按钮、填 key、下载拼图）
+│   ├── verify_real_vlm.mjs # 真 Chrome + 真模型：让 Qwen 自己控制鸭子（无 key 则 SKIP）
 │   ├── mock_llm.mjs        # 假 OpenAI 端点，验证 BYO key 链路
 │   └── serve.mjs           # 极简静态服务器（.wasm/.onnx 的 MIME 很关键）
 ├── artifacts/              # verify_render 出的四视角截图
@@ -231,3 +232,34 @@ zero-shot 越容易选错，而且每个技能都要带一套 ONNX 状态机。
 Python 侧同条件测到 -60.3° 俯角，JS 侧测到 +50.5°，一比就露馅。
 现在 `duck.js` 的 `bodyForward()` 统一走列，并在 `verify_agent.mjs` 的 T0 里
 加了回归测试（默认俯角 29.3°、低头 → 56.0°、抬头 → -18.7°）。
+
+## 九、真模型端到端（Qwen3-VL-Plus 实测）
+
+`tools/verify_real_vlm.mjs` 把真 key 塞给浏览器里的 agent，让模型自己飞。
+key 只从环境变量读，**不落盘、不进仓库**：
+
+```powershell
+$env:DUCK_VLM_KEY="sk-…"
+node tools\verify_real_vlm.mjs "go to the orange ball and stop next to it" 12
+```
+
+测的是百炼（ap-southeast-1）的 `qwen3-vl-plus`，base 用
+`https://dashscope-intl.aliyuncs.com/compatible-mode/v1`。一次真实回合：
+
+| 步 | 模型原文 | 延迟 | 它看到的目标 | 它选的动作 |
+| --- | --- | --- | --- | --- |
+| 0 | `"FWD"` | 1000 ms | 0.90 m / 0.00 rad | 前进 |
+| 3 | `"FWD"` | 919 ms | 0.68 m / 0.03 rad | 前进 |
+| 6 | `"FWD"` | 631 ms | 0.46 m / -0.03 rad | 前进 |
+| 7 | `"FWD"` | 533 ms | 0.39 m / -0.00 rad | 前进 |
+| 8 | `"DONE"` | 544 ms | 0.32 m / -0.09 rad | **判断到了，收工** |
+
+9 次决策、1120 个控制步、墙钟 51 s（无头 Chrome 用软件光栅化，真机上有 GPU 会快得多）。
+距离 0.90 m → 0.32 m 单调缩短，直立度 1.000，**0 条解析失败**，
+并且它自己在 0.32 m 处收手——不是走到撞上去才停。
+
+`verify_real_vlm.mjs` 的 8 项断言全过；没设 key 时它打印 SKIP 并正常退出，
+所以可以放心放进 `npm run verify`。
+
+> 顺带说明为什么值得单独跑这一步：假端点只能证明「链路通」，
+> 证明不了「提示词好不好、模型会不会玩」。上面这张表是那一步的证据。

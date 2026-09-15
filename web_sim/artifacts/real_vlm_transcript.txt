@@ -1,0 +1,12 @@
+任务: go to the orange ball and stop next to it
+模型: qwen3-vl-plus
+
+#0 FWD raw="FWD" 1000ms visible=true range=0.9030838178637395 bearing=0.00013952824385113434 rules=
+#1 FWD raw="FWD" 921ms visible=true range=0.8246718867063333 bearing=0.12728990758954334 rules=
+#2 FWD raw="FWD" 487ms visible=true range=0.7509733134571639 bearing=0.15177554645110067 rules=
+#3 FWD raw="FWD" 919ms visible=true range=0.6819534547388847 bearing=0.03191173762817427 rules=
+#4 FWD raw="FWD" 642ms visible=true range=0.6079695270507878 bearing=0.10061191117756486 rules=
+#5 FWD raw="FWD" 486ms visible=true range=0.5361333595287521 bearing=0.01554176220339663 rules=
+#6 FWD raw="FWD" 631ms visible=true range=0.46312362084681774 bearing=-0.03480136049204002 rules=
+#7 FWD raw="FWD" 533ms visible=true range=0.3864697339052099 bearing=-0.004010548980063435 rules=
+#8 DONE raw="DONE" 544ms visible=true range=0.31633472264340623 bearing=-0.08712269706885226 rules=
