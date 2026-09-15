@@ -9,9 +9,11 @@
  */
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import loadMujoco from "@mujoco/mujoco";
+import { loadScene } from "./load_scene.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -22,6 +24,10 @@ const sceneDir = path.join(ROOT, "assets", sceneId);
 const REFERENCE = {
   duck_workspace_v1: { trunk: [0.13079, 0.00058, 0.05089], ball: [0.9, 0.0], expect: 200 },
 };
+
+/** 与 flatten_scene.py 的 DEFAULT_POSE 一致。 */
+const HOME = Float64Array.from([0.0, -0.0873, -0.4579, -0.0049, 0.4530, 0.3491, 0.3491,
+  0.0, 0.0, 0.0, 0.0873, 0.4579, 0.0049, -0.4530]);
 
 async function main() {
   if (!existsSync(sceneDir)) {
@@ -35,21 +41,8 @@ async function main() {
   const mujoco = await loadMujoco({ locateFile: () => pathToFileURL(wasmPath).href });
   const tLoad = Date.now() - t0;
 
-  // 2) 把场景与 mesh 塞进 MjVFS：主 XML 在根，mesh 在 assets/ 下（与 XML 的 meshdir 对应）
-  const xml = await readFile(path.join(sceneDir, "scene.xml"), "utf8");
-  const meshFiles = await readdir(path.join(sceneDir, "assets"));
-  const vfs = new mujoco.MjVFS();
-  vfs.addBuffer("scene.xml", new TextEncoder().encode(xml));
-  let bytes = 0;
-  for (const f of meshFiles) {
-    const buf = await readFile(path.join(sceneDir, "assets", f));
-    bytes += buf.length;
-    vfs.addBuffer(`assets/${f}`, buf);
-  }
-
-  // 3) 用 XML 字符串 + VFS 建模
-  const model = mujoco.MjModel.from_xml_string(xml, vfs);
-  const data = new mujoco.MjData(model);
+  // 2) 把场景与 mesh 塞进 MjVFS（mesh 目录从 XML 的 meshdir 读，见 load_scene.mjs）
+  const { model, data, meshCount, meshdir } = await loadScene(mujoco, sceneDir);
 
   // 4) 关键对象是否解析出来（mj_name2id 的第 1 个参数是对象类型：1=body）
   const OBJ_BODY = 1;
@@ -58,33 +51,49 @@ async function main() {
     ids[n] = mujoco.mj_name2id(model, OBJ_BODY, n);
   }
 
-  // 5) 与 Python 端一致：keyframe 复位 + 200 步
+  // 5) 跑摊平时由 Python 生成的那套参考协议（见 flatten_scene.py 的 REFERENCE_PROTOCOL）
+  const ref = JSON.parse(await readFile(path.join(sceneDir, "reference.json"), "utf8"));
   mujoco.mj_resetDataKeyframe(model, data, 0);
+  data.qvel.fill(0);
+  data.ctrl.set(HOME);
+  mujoco.mj_forward(model, data);
   const steps = 200;
   for (let i = 0; i < steps; i++) mujoco.mj_step(model, data);
 
   const trunk = [data.xpos[ids.trunk_base * 3], data.xpos[ids.trunk_base * 3 + 1], data.xpos[ids.trunk_base * 3 + 2]];
-  const ball = [data.xpos[ids.ball * 3], data.xpos[ids.ball * 3 + 1]];
-
-  const ref = REFERENCE[sceneId];
   const close = (a, b, tol = 5e-4) => Math.abs(a - b) <= tol;
-  const trunkOk = ref ? trunk.every((v, i) => close(v, ref.trunk[i])) : null;
-  const ballOk = ref ? ball.every((v, i) => close(v, ref.ball[i])) : null;
+  const trunkOk = trunk.every((v, i) => close(v, ref.trunk[i]));
+  // 逐 body 比：比只看 trunk 强得多，而且任何场景都适用
+  const bodyDiffs = [];
+  for (const [name, xyz] of Object.entries(ref.bodies)) {
+    const b = mujoco.mj_name2id(model, OBJ_BODY, name);
+    if (b < 0) { bodyDiffs.push([name, "缺失"]); continue; }
+    for (let k = 0; k < 3; k++) {
+      const d = Math.abs(data.xpos[b * 3 + k] - xyz[k]);
+      if (d > 5e-4) bodyDiffs.push([name, d.toExponential(1)]);
+    }
+  }
+  // 所有 geom 的位置哈希：一条就能覆盖整车，不会漏掉某个关节
+  const hashOf = (arr) => {
+    const s = Array.from(arr).map((v) => Number(v).toFixed(6)).join(",");
+    return createHash("sha256").update(s).digest("hex").slice(0, 16);
+  };
+  const wasmHash = hashOf(data.geom_xpos);
+  const hashOk = wasmHash === ref.geomXposHash;
 
   console.log("=== MuJoCo WASM × 我们的场景 ===");
   console.log(`场景            : ${sceneId}`);
+  console.log(`参考协议        : ${ref.protocol}`);
   console.log(`WASM 模块加载   : ${tLoad} ms`);
-  console.log(`mesh            : ${meshFiles.length} 个, ${(bytes / 1048576).toFixed(2)} MB`);
+  console.log(`mesh            : ${meshCount} 个（共享目录 ${meshdir}）`);
   console.log(`model           : nbody=${model.nbody} ngeom=${model.ngeom} nu=${model.nu} nq=${model.nq}`);
-  console.log(`关键 body id    : ${JSON.stringify(ids)}`);
   console.log(`${steps} 步后 trunk   : [${trunk.map((v) => v.toFixed(5)).join(", ")}]`);
-  console.log(`${steps} 步后 ball    : [${ball.map((v) => v.toFixed(5)).join(", ")}]`);
-  if (ref) {
-    console.log(`Python 参考 trunk: [${ref.trunk.join(", ")}]  ball: [${ref.ball.join(", ")}]`);
-    console.log(`一致性          : trunk ${trunkOk ? "OK" : "DIFF"}   ball ${ballOk ? "OK" : "DIFF"}`);
-  }
-  const ok = Object.values(ids).every((v) => v >= 0) && (trunkOk !== false) && (ballOk !== false);
-  console.log(ok ? "\n结果: PASS — 官方 MuJoCo WASM 可以直接加载我们的场景，物理与 Python 端一致"
+  console.log(`Python 参考 trunk: [${ref.trunk.map((v) => v.toFixed(5)).join(", ")}]`);
+  console.log(`一致性          : trunk ${trunkOk ? "OK" : "DIFF"} | ` +
+              `${Object.keys(ref.bodies).length} 个 body ${bodyDiffs.length ? "DIFF " + JSON.stringify(bodyDiffs.slice(0, 4)) : "OK"} | ` +
+              `geom 位置哈希 ${hashOk ? "OK" : `DIFF ${wasmHash} vs ${ref.geomXposHash}`}`);
+  const ok = trunkOk && bodyDiffs.length === 0 && hashOk;
+  console.log(ok ? "\n结果: PASS — 官方 MuJoCo WASM 的物理与 Python 端逐步一致（不只 trunk，全部 body + 全部 geom）"
                  : "\n结果: FAIL — 需要排查");
   process.exit(ok ? 0 : 1);
 }

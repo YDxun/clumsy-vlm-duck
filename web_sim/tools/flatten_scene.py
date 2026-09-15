@@ -25,6 +25,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCENES = ROOT / "duck_scenes" / "scenes"
 ROBOT = ROOT / "duck_scenes" / "robot"
+MANIFEST = Path(__file__).resolve().parents[1] / "scenes.json"
+SHARED_MESH_DIR = "../_shared"   # 所有场景共用的机器人网格（相对各场景目录）
 OUT_ROOT = ROOT / "web_sim" / "assets"
 
 
@@ -108,6 +110,101 @@ def export_sidecar(scene_dir: Path, out_dir: Path) -> dict:
     return written
 
 
+def update_manifest(scene_id: str, info: dict) -> dict:
+    """把摊平结果登记到 web_sim/scenes.json —— 这就是“加场景 = 跑一次摊平”的那一环。
+
+    清单是**页面唯一的场景来源**：新增场景只要摊平一次，页面下拉里就会自动出现。
+    显示用的标题/描述/标签由人手写（清单里已有的字段会被保留），
+    而 mesh 体积、任务条数这些是每次摊平后重新测量的。
+    """
+    if MANIFEST.exists():
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    else:
+        manifest = {"scenes": []}
+    scenes = manifest.setdefault("scenes", [])
+    entry = next((s for s in scenes if s.get("id") == scene_id), None)
+    if entry is None:
+        entry = {
+            "id": scene_id,
+            "title": scene_id,
+            "description": "",
+            "tags": [],
+        }
+        scenes.append(entry)
+    entry.update({
+        "dir": scene_id,
+        "meshCount": info.get("meshes", 0),
+        "meshBytes": info.get("bytes", 0),
+        "xmlBytes": info.get("xml_bytes", 0),
+        "sidecars": sorted((info.get("sidecars") or {}).keys()),
+    })
+    MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8", newline="\n")
+    return entry
+
+
+#: 跨引擎一致性检查用的固定协议。两边都必须用同一套，否则比的是协议不是引擎。
+REFERENCE_PROTOCOL = "keyframe0 + qvel=0 + ctrl=HOME + 200*mj_step"
+
+
+def write_reference(scene_id: str, out_dir: Path) -> dict:
+    """用**磁盘上的 Python MuJoCo** 跑一遍固定协议，把结果存成 reference.json。
+
+    浏览器里的 WASM 只能跟"另一个引擎"比，所以参考值必须在摊平的时候由 Python 生成，
+    而不是写死在验证脚本里 —— 那样每加一个场景都要手改脚本，就不叫可扩展了。
+
+    记录三样东西：
+      - 每个 body 的 xpos（21 个 body × 3，很小）
+      - trunk 的完整位姿（xmat 9 个数，能抓到旋转差异）
+      - 所有 geom 的 xpos 哈希（一条就覆盖整车，漏不掉）
+    """
+    try:
+        import mujoco
+        import numpy as np
+    except ImportError as exc:
+        return {"error": f"没有 mujoco：{exc}"}
+    model = mujoco.MjModel.from_xml_path(str(out_dir / "scene.xml"))
+    data = mujoco.MjData(model)
+    mujoco.mj_resetDataKeyframe(model, data, 0)
+    data.qvel[:] = 0
+    ctrl = np.array([0.0, -0.0873, -0.4579, -0.0049, 0.4530, 0.3491, 0.3491,
+                     0.0, 0.0, 0.0, 0.0873, 0.4579, 0.0049, -0.4530])
+    data.ctrl[:] = ctrl[: model.nu]
+    mujoco.mj_forward(model, data)
+    for _ in range(200):
+        mujoco.mj_step(model, data)
+    trunk = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "trunk_base"))
+    # 新版 MuJoCo 的 data.xpos[id] 是列向量，numpy 2 下 float() 会报错，统一 ravel
+    flat = lambda arr: [round(float(v), 6) for v in np.asarray(arr).ravel()]
+    ref = {
+        "protocol": REFERENCE_PROTOCOL,
+        "nbody": int(model.nbody),
+        "ngeom": int(model.ngeom),
+        "trunk": flat(data.xpos[trunk]),
+        "trunkMat": flat(data.xmat[trunk]),
+        "bodies": {mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, b):
+                   flat(data.xpos[b])
+                   for b in range(model.nbody)},
+        "geomXposHash": _hash_floats(np.asarray(data.geom_xpos).ravel()),
+    }
+    (out_dir / "reference.json").write_text(json.dumps(ref, ensure_ascii=False, indent=2) + "\n",
+                                            encoding="utf-8", newline="\n")
+    return ref
+
+
+def _hash_floats(values, ndigits: int = 6) -> str:
+    """把一串浮点数量化成字符串后取哈希 —— 用来一次覆盖所有 geom 的位置。"""
+    import hashlib
+    flat = []
+    for v in values:
+        if hasattr(v, "__len__"):        # 新版 MuJoCo 的数组是二维的，先摊平
+            flat.extend(float(x) for x in v)
+        else:
+            flat.append(float(v))
+    payload = ",".join(f"{v:.{ndigits}f}" for v in flat)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 def flatten(scene_id: str, out_root: Path = OUT_ROOT) -> dict:
     scene_dir = SCENES / scene_id
     scene_xml = scene_dir / "scene.xml"
@@ -128,29 +225,46 @@ def flatten(scene_id: str, out_root: Path = OUT_ROOT) -> dict:
         flat = flat.replace("<mujoco", '<mujoco', 1)
         flat = re.sub(r"(<mujoco[^>]*>)", r'\1\n <compiler meshdir="assets"/>', flat, count=1)
 
+    # 三个场景用的是同一批机器人网格，各拷一份是 3×20 MB 的浪费。
+    # 统一放到 out_root/_shared，场景 XML 里的 meshdir 指过去。
     flat, n_act = bake_force_range(flat)
+    flat = re.sub(r'(<compiler\b[^>]*?)meshdir="[^"]*"', r"\1", flat)
+    if re.search(r"<compiler\b[^>]*/>", flat):
+        flat = re.sub(r"<compiler\b([^>]*?)/>",
+                      lambda m: f'<compiler{m.group(1)} meshdir="{SHARED_MESH_DIR}"/>', flat, count=1)
+    else:
+        flat = re.sub(r"(<mujoco[^>]*>)", rf'\1\n <compiler meshdir="{SHARED_MESH_DIR}"/>', flat, count=1)
     meshes = referenced_meshes(flat)
     out_dir = out_root / scene_id
-    assets_dir = out_dir / "assets"
+    assets_dir = (out_root / SHARED_MESH_DIR).resolve()   # ../_shared -> <out_root>/_shared
     if out_dir.exists():
         shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)      # 网格搬去共享目录后，这里得自己建
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     copied, missing = [], []
     for name in meshes:
+        dst = assets_dir / name
+        if dst.exists():          # 已经拷过（所有场景共用同一批网格）
+            copied.append(name)
+            continue
         src = ROBOT / "assets" / name
         if src.exists():
-            shutil.copy2(src, assets_dir / name)
+            shutil.copy2(src, dst)
             copied.append(name)
         else:
             missing.append(name)
 
     (out_dir / "scene.xml").write_text(flat, encoding="utf-8", newline="\n")
     sidecars = export_sidecar(scene_dir, out_dir)
-    total = sum((assets_dir / n).stat().st_size for n in copied)
-    return {"scene": scene_id, "out": str(out_dir), "meshes": len(copied),
+    total = sum((assets_dir / n).stat().st_size for n in copied if (assets_dir / n).exists())
+    info = {"scene": scene_id, "out": str(out_dir), "meshes": len(copied),
             "missing": missing, "bytes": total, "xml_bytes": len(flat),
             "actuators": n_act, "force_limit": FORCE_LIMIT, "sidecars": sidecars}
+    ref = write_reference(scene_id, out_dir)
+    info["reference"] = "ok" if "error" not in ref else ref["error"]
+    update_manifest(scene_id, info)
+    return info
 
 
 def main() -> int:
@@ -164,6 +278,8 @@ def main() -> int:
     print(f"XML       : {info['xml_bytes']} bytes")
     print(f"mesh      : {info['meshes']} 个, {info['bytes']/1048576:.2f} MB")
     print(f"力矩限幅  : {info['actuators']} 个执行器写入 ±{info['force_limit']:.6f}（与 Python LocalSim 一致）")
+    print(f"场景清单  : {MANIFEST.relative_to(MANIFEST.parents[1])} 已更新")
+    print(f"参考数据  : {info.get('reference')}")
     if info["missing"]:
         print(f"缺失 mesh : {info['missing']}")
     return 0

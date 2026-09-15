@@ -1,0 +1,46 @@
+{
+  "_说明": "页面唯一的场景来源。新增场景：python tools/flatten_scene.py <场景id>，它会自动把条目补进来（标题/描述/标签由人手写，其余字段每次摊平后重新测量）。",
+  "_清单格式": {
+    "scenes[].id": "场景 id，必须等于 assets/ 下的目录名",
+    "scenes[].dir": "实际目录名，默认同 id",
+    "scenes[].title": "下拉里显示的名字",
+    "scenes[].description": "一句话说明这个场景考什么",
+    "scenes[].tags": "标签，显示在标题后面",
+    "assetBase": "可选：场景目录的基址。默认取本清单同级的 assets/，指向外部托管时写绝对 URL"
+  },
+  "scenes": [
+    {
+      "id": "duck_workspace_v1",
+      "title": "工作台 · 入门",
+      "description": "4×4 m 封闭场地，一个矮台、两个障碍，球/红蓝方块/杯子/绿蓝区域",
+      "tags": ["入门", "6 个任务"],
+      "dir": "duck_workspace_v1",
+      "meshCount": 38,
+      "meshBytes": 21590692,
+      "xmlBytes": 36473,
+      "sidecars": ["metadata", "tasks"]
+    },
+    {
+      "id": "duck_home_v1",
+      "title": "家庭 · 跨房间搜索",
+      "description": "有隔墙和门洞的房间，考跨房间找球、按语义找信标、把球推到绿色区域",
+      "tags": ["高级", "3 个任务"],
+      "dir": "duck_home_v1",
+      "meshCount": 38,
+      "meshBytes": 21590692,
+      "xmlBytes": 35537,
+      "sidecars": ["metadata", "tasks"]
+    },
+    {
+      "id": "duck_obstacle_v1",
+      "title": "障碍 · 地形与窄道",
+      "description": "低台阶 + 12° 坡道 + 0.5 m 窄道 + 柱子，考地形通过、绕障推球、摔倒恢复",
+      "tags": ["高级", "5 个任务"],
+      "dir": "duck_obstacle_v1",
+      "meshCount": 38,
+      "meshBytes": 21590692,
+      "xmlBytes": 36187,
+      "sidecars": ["metadata", "tasks"]
+    }
+  ]
+}

@@ -32,6 +32,27 @@ const PLANE = 0, SPHERE = 2, CAPSULE = 3, ELLIPSOID = 4, CYLINDER = 5, BOX = 6, 
 /** MuJoCo 世界坐标 (x,y,z) -> three.js (x,z,-y)；方向向量同理（平移分量不参与）。 */
 const toThree = (v) => [v[0], v[2], -v[1]];
 
+/**
+ * 鸭子配色 —— 场景包里的材质全是中性灰（0.5,0.5,0.5），实物鸭子不是这样。
+ * 按 body 名给零件上色：嘴是橙的、脚是深色的、外壳是奶白的。
+ * 只在浏览器渲染层生效，**不动物理、不动物流**，所以可以随时切回原始材质对比。
+ */
+export const DUCK_PALETTE = {
+  beak:   { match: /jaw|beak|mouth/i,                 color: 0xe08a2e },
+  foot:   { match: /ankle|foot|toe/i,                 color: 0x2f3742 },
+  leg:    { match: /leg|hip/i,                        color: 0x6d7885 },
+  head:   { match: /neck|yaw_roll|head/i,             color: 0xf3ece0 },
+  body:   { match: /trunk|bearing|shell/i,            color: 0xe7e1d3 },
+};
+
+/** 按 body 名选颜色；认不出来就保留场景原本的材质色。 */
+export function paletteColor(bodyName) {
+  for (const { match, color } of Object.values(DUCK_PALETTE)) {
+    if (bodyName && match.test(bodyName)) return color;
+  }
+  return null;
+}
+
 export class DuckView {
   /**
    * @param {object} opts
@@ -47,17 +68,26 @@ export class DuckView {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
-    this.renderer.setClearColor(0x0b1118, 1);
+    this.renderer.setClearColor(0x0e1720, 1);
 
     this.scene = new THREE.Scene();
+    this.scene.background = this._skyTexture();
+    this.scene.fog = new THREE.Fog(0x141d27, 6, 26);
     this.world = new THREE.Group();
     this.world.rotation.x = -Math.PI / 2;   // MuJoCo z-up -> three.js y-up
     this.scene.add(this.world);
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x555f6b, 2.2));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-    sun.position.set(2, 4, 3);
-    this.scene.add(sun);
+    // 三点光：天光打底 + 暖色主光 + 冷色补光，比原来单方向光立体得多
+    this.scene.add(new THREE.HemisphereLight(0xdcecff, 0x39414b, 2.0));
+    const key = new THREE.DirectionalLight(0xfff2dd, 1.35);
+    key.position.set(3.2, 5.0, 2.4);
+    this.scene.add(key);
+    const fill = new THREE.DirectionalLight(0x9dc4ff, 0.65);
+    fill.position.set(-3.0, 2.2, -2.6);
+    this.scene.add(fill);
+
+    this.palette = "duck";      // duck | raw
+    this.contactShadow = true;
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.02, 80);
     this.mode = "follow";
@@ -67,6 +97,9 @@ export class DuckView {
     this._cams = {};
 
     this.meshes = [];
+    // 三个场景共用同一批 STL，几何数据完全一样，按 mesh 名缓存起来复用：
+    // 换场景时省掉 20 万个顶点的法线重算（约 2 s），也省一份 GPU 缓冲。
+    this._geomCache = new Map();
     this._initControls(canvas);
     this.build();
   }
@@ -99,6 +132,11 @@ export class DuckView {
 
   build() {
     const { model } = this.duck;
+    const OBJ_BODY = this.duck.mujoco.mjtObj.mjOBJ_BODY.value;
+    this.bodyNames = [];
+    for (let b = 0; b < model.nbody; b++) {
+      this.bodyNames.push(this.duck.mujoco.mj_id2name(model, OBJ_BODY, b) || "");
+    }
     for (let g = 0; g < model.ngeom; g++) {
       const type = model.geom_type[g];
       const size = [model.geom_size[g * 3], model.geom_size[g * 3 + 1], model.geom_size[g * 3 + 2]];
@@ -113,8 +151,72 @@ export class DuckView {
       const mesh = new this.THREE.Mesh(geometry, material);
       mesh.matrixAutoUpdate = false;
       this.world.add(mesh);
-      this.meshes.push({ index: g, mesh });
+      const bodyName = this.bodyNames[model.geom_bodyid[g]] || "";
+      this.meshes.push({
+        index: g, mesh, bodyName,
+        rawColor: material.color.clone(),
+        accent: paletteColor(bodyName),
+      });
     }
+    this._buildFloorDecor();
+    this.applyPalette(this.palette);
+  }
+
+  /** 天空渐变 —— 比一块纯色背景体面得多，而且不影响任何物理。 */
+  _skyTexture() {
+    const c = document.createElement("canvas");
+    c.width = 8; c.height = 256;
+    const ctx = c.getContext("2d");
+    const g = ctx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, "#0d1a28");
+    g.addColorStop(0.55, "#16222e");
+    g.addColorStop(1, "#243040");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 8, 256);
+    const tex = new this.THREE.CanvasTexture(c);
+    tex.colorSpace = this.THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** 地面网格线 + 鸭子脚下的接触阴影，都是纯视觉装饰。 */
+  _buildFloorDecor() {
+    const T = this.THREE;
+    const size = 4.2, div = 21;
+    const grid = new T.GridHelper(size, div, 0x3d4a59, 0x2b3644);
+    grid.position.y = 0.002;
+    grid.material.opacity = 0.55;
+    grid.material.transparent = true;
+    this.scene.add(grid);
+    this.grid = grid;
+
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const ctx = c.getContext("2d");
+    const g = ctx.createRadialGradient(64, 64, 2, 64, 64, 62);
+    g.addColorStop(0, "rgba(0,0,0,0.42)");
+    g.addColorStop(0.6, "rgba(0,0,0,0.18)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const blob = new T.Mesh(
+      new T.PlaneGeometry(0.55, 0.55),
+      new T.MeshBasicMaterial({ map: new T.CanvasTexture(c), transparent: true, depthWrite: false }),
+    );
+    blob.rotation.x = -Math.PI / 2;
+    blob.position.y = 0.004;
+    blob.renderOrder = 1;
+    this.scene.add(blob);
+    this.blob = blob;
+  }
+
+  /** 切换鸭子配色：duck（美化）/ raw（场景包原始材质）。 */
+  applyPalette(mode = "duck") {
+    this.palette = mode;
+    for (const m of this.meshes) {
+      if (!m.accent) continue;
+      m.mesh.material.color.set(mode === "duck" ? m.accent : m.rawColor);
+    }
+    return this.palette;
   }
 
   geometryFor(type, size, dataid) {
@@ -156,6 +258,8 @@ export class DuckView {
   meshGeometry(id) {
     const { model } = this.duck;
     if (id < 0) return null;
+    const key = this.duck.mujoco.mj_id2name(model, this.duck.mujoco.mjtObj.mjOBJ_MESH.value, id);
+    if (key && this._geomCache.has(key)) return this._geomCache.get(key);
     const vAt = model.mesh_vertadr[id] * 3, vN = model.mesh_vertnum[id];
     const fAt = model.mesh_faceadr[id] * 3, fN = model.mesh_facenum[id];
     const vertices = new Float32Array(vN * 3);
@@ -166,6 +270,7 @@ export class DuckView {
     g.setAttribute("position", new this.THREE.BufferAttribute(vertices, 3));
     g.setIndex(new this.THREE.BufferAttribute(indices, 1));
     g.computeVertexNormals();
+    if (key) this._geomCache.set(key, g);
     return g;
   }
 
@@ -226,6 +331,10 @@ export class DuckView {
       );
     }
     this.placeCamera();
+    if (this.blob && this.contactShadow) {
+      const p = this.duck.pose;                 // 接触阴影跟着鸭子走（纯装饰）
+      this.blob.position.set(p.x, 0.004, -p.y);
+    }
     const w = this.canvas.clientWidth || this.canvas.width;
     const h = this.canvas.clientHeight || this.canvas.height;
     const ratio = this.renderer.getPixelRatio();
@@ -286,7 +395,37 @@ export class DuckView {
 
   dispose() {
     for (const { mesh } of this.meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
+    for (const g of this._geomCache?.values() || []) g.dispose();
+    this._geomCache?.clear();
     this.renderer.dispose();
+  }
+
+  /**
+   * 换场景：把旧模型的 mesh 与装饰全部拆掉，用新的 DuckSim 重建。
+   * 渲染器/灯光/相机都不动 —— 换场景不该重建 WebGL 上下文（会漏 GPU 资源），
+   * 也不该让用户重新调一次视角。
+   */
+  rebuild(duck) {
+    const shared = new Set(this._geomCache.values());
+    for (const { mesh } of this.meshes) {
+      this.world.remove(mesh);
+      if (!shared.has(mesh.geometry)) mesh.geometry.dispose();   // 缓存里的几何不能删
+      mesh.material.dispose();
+    }
+    this.meshes = [];
+    for (const key of ["grid", "blob"]) {
+      const obj = this[key];
+      if (!obj) continue;
+      this.scene.remove(obj);
+      obj.geometry?.dispose();
+      obj.material?.map?.dispose?.();
+      obj.material?.dispose?.();
+      this[key] = null;
+    }
+    this.duck = duck;
+    this._cams = {};
+    this.build();
+    return this.meshes.length;
   }
 
   /**

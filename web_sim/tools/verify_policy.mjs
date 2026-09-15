@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import loadMujoco from "@mujoco/mujoco";
 import * as ort from "onnxruntime-web";
+import { loadScene } from "./load_scene.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -55,14 +56,7 @@ async function main() {
   });
 
   const sceneDir = path.join(ROOT, "assets", sceneId);
-  const xml = await readFile(path.join(sceneDir, "scene.xml"), "utf8");
-  const vfs = new mujoco.MjVFS();
-  vfs.addBuffer("scene.xml", new TextEncoder().encode(xml));
-  for (const f of await readdir(path.join(sceneDir, "assets"))) {
-    vfs.addBuffer(`assets/${f}`, await readFile(path.join(sceneDir, "assets", f)));
-  }
-  const model = mujoco.MjModel.from_xml_string(xml, vfs);
-  const data = new mujoco.MjData(model);
+  const { model, data } = await loadScene(mujoco, sceneDir, { keyframe: -1 });
 
   // 注意：LocalSim 在 Python 里会把执行器力矩上限覆写成 ±0.605454，
   // 但官方 WASM 的 model.actuator_forcerange / actuator_forcelimited 在 JS 侧不可写

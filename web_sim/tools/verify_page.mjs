@@ -58,6 +58,64 @@ async function main() {
         sceneTasks.every((id) => opts.some((o) => o.v === id)), sceneTasks.join(", "));
   check("标签里带人类可读的指令", opts[0].t.includes("—") && opts[0].t.length > opts[0].v.length + 3, opts[0].t);
 
+  // ---------------------------------------------------------------- 多场景
+  console.log("\n== 多场景：清单驱动 + 热切换（不重启服务）==");
+  const sceneOpts = await page.$$eval("#scene-select option", (e) => e.map((x) => ({ v: x.value, t: x.textContent })));
+  check("场景下拉列出了清单里的全部场景", sceneOpts.length >= 3, sceneOpts.map((o) => o.t).join(" | "));
+  const switched = await page.evaluate(async () => {
+    const t0 = performance.now();
+    const before = window.__sim.scene.metadata.scene_id;
+    document.getElementById("scene-select").value = "duck_home_v1";
+    document.getElementById("scene-select").dispatchEvent(new Event("change"));
+    for (let i = 0; i < 600; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (window.__sim.scene.metadata.scene_id === "duck_home_v1") break;
+    }
+    const s = window.__sim;
+    return { before, after: s.scene.metadata.scene_id, ms: performance.now() - t0,
+             geoms: s.duck.model.ngeom, meshes: s.view.meshes.length,
+             tasks: s.scene.listTasks().map((t) => t.id),
+             info: document.getElementById("scene-info").textContent,
+             stillReady: window.__duckReady };
+  });
+  check("换到第二个场景成功（页面没刷新）", switched.after === "duck_home_v1" && switched.stillReady === true,
+        `${switched.before} -> ${switched.after}，${(switched.ms / 1000).toFixed(1)} s`);
+  check("渲染跟着换成新场景的几何", switched.meshes === switched.geoms && switched.geoms > 0,
+        `${switched.meshes} 个 mesh / ${switched.geoms} 个 geom`);
+  check("任务表换成了新场景的", switched.tasks.length === 3 && switched.tasks.includes("search_ball_across_rooms"),
+        switched.tasks.join(", "));
+  check("场景信息栏显示标题与描述", switched.info.includes("家庭") && switched.info.includes("任务 3 条"),
+        switched.info.slice(0, 70));
+  const cachedSwitch = await page.evaluate(async () => {
+    const t0 = performance.now();
+    document.getElementById("scene-select").value = "duck_workspace_v1";
+    document.getElementById("scene-select").dispatchEvent(new Event("change"));
+    for (let i = 0; i < 300; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      if (window.__sim.scene.metadata.scene_id === "duck_workspace_v1") break;
+    }
+    return { ms: performance.now() - t0, scene: window.__sim.scene.metadata.scene_id };
+  });
+  check("换回已加载过的场景走缓存（秒级）", cachedSwitch.ms < 3000,
+        `${(cachedSwitch.ms / 1000).toFixed(2)} s`);
+
+  // ---------------------------------------------------------------- 配色
+  console.log("\n== 鸭子配色 ==");
+  const pal = await page.evaluate(() => {
+    const v = window.__sim.view;
+    const accents = v.meshes.filter((m) => m.accent);
+    const colors = (mode) => {
+      v.applyPalette(mode);
+      return [...new Set(accents.map((m) => m.mesh.material.color.getHexString()))].sort();
+    };
+    const duck = colors("duck"), raw = colors("raw");
+    v.applyPalette("duck"); v.frame();
+    return { count: accents.length, duck, raw, palette: v.palette };
+  });
+  check("鸭子零件被分配了配色", pal.count > 50, `${pal.count} 个 geom 有专门颜色`);
+  check("美化配色不是单一灰（嘴/腿/脚/身各不相同）", pal.duck.length >= 4, pal.duck.join(", "));
+  check("能一键切回场景包原始材质", pal.raw.length === 1, pal.raw.join(", "));
+
   const chosen = sceneTasks[0];
   await page.selectOption("#task-select", chosen);
   const info = await page.textContent("#task-info");
@@ -125,7 +183,8 @@ async function main() {
       amp: s.agent.task,
     };
   });
-  check("开始后物理在推进", runState.steps > 100, `${runState.steps} 个控制步`);
+  // 无头环境是软件光栅化，9 秒墙钟跑到多少步取决于机器忙不忙，阈值放宽
+  check("开始后物理在推进", runState.steps > 50, `${runState.steps} 个控制步`);
   check("决策层在工作", runState.decisions > 0, `${runState.decisions} 次决策，阶段 ${runState.phase}`);
   check("鸭子没有摔倒", runState.upright > 0.9, `upright=${runState.upright.toFixed(3)}`);
   check("日志出现决策卡片", runState.cards > 0, `${runState.cards} 张`);

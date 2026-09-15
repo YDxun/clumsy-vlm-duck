@@ -203,12 +203,36 @@ export class DuckSim {
     this.steps = 0;
   }
 
-  async loadPolicy(url) {
-    const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
-    this.policy = await ort.InferenceSession.create(buf);
+  /**
+   * 装载策略。换场景时会重新建 DuckSim，但 ONNX 会话本身与场景无关，
+   * 所以允许把已有会话传进来复用（否则每换一次场景都要重新解析一遍 ONNX）。
+   */
+  async loadPolicy(url, { session = null } = {}) {
+    if (session) {
+      this.policy = session;
+    } else {
+      this.policy = await DuckSim.createPolicySession(url);
+    }
     this.policyIn = this.policy.inputNames[0];
     this.policyOut = this.policy.outputNames[0];
     return this.policy;
+  }
+
+  /** 单独建一个 ONNX 会话（和场景无关，可以跨场景复用）。 */
+  static async createPolicySession(url) {
+    const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    return ort.InferenceSession.create(buf);
+  }
+
+  /**
+   * 释放 WASM 侧的模型与数据。embind 的对象不会因为 JS 引用消失就马上归还内存，
+   * 连续换场景时不主动释放，MuJoCo 堆会一直涨。
+   */
+  dispose() {
+    try { this.model?.delete?.(); } catch { /* 已经被 FinalizationRegistry 回收 */ }
+    try { this.data?.delete?.(); } catch { /* 同上 */ }
+    this.model = null;
+    this.data = null;
   }
 
   upright() {
@@ -397,11 +421,15 @@ export class DuckSim {
     const mujoco = await loadMujoco(wasmUrl ? { locateFile: () => wasmUrl } : undefined);
     const xml = await (await fetch(sceneUrl)).text();
     const dir = mjcfBase.replace(/\/$/, "");
+    // mesh 目录从 XML 里读，不写死：多个场景共用一个 _shared 目录（否则每个场景都要
+    // 复制 20 MB 机器人网格）。MuJoCo 的 VFS 把路径当字符串，`../_shared/x.stl`
+    // 只要注册时用同一个字符串就行。浏览器 URL 里带 `..` 会自己规范化，不用管。
+    const meshdir = (xml.match(/meshdir="([^"]+)"/) || [, "assets"])[1];
     const vfs = new mujoco.MjVFS();
     vfs.addBuffer("scene.xml", new TextEncoder().encode(xml));
     for (const name of [...xml.matchAll(/<mesh\s+file="([^"]+)"/g)].map((m) => m[1])) {
-      const buf = new Uint8Array(await (await fetch(`${dir}/assets/${name}`)).arrayBuffer());
-      vfs.addBuffer(`assets/${name}`, buf);
+      const buf = new Uint8Array(await (await fetch(`${dir}/${meshdir}/${name}`)).arrayBuffer());
+      vfs.addBuffer(`${meshdir}/${name}`, buf);
     }
     const model = mujoco.MjModel.from_xml_string(xml, vfs);
     return new DuckSim({ mujoco, model, data: new mujoco.MjData(model) });

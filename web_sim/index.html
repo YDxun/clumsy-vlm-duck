@@ -90,6 +90,7 @@
       <button data-mode="duck">鸭子眼</button>
       <button data-mode="free">自由视角</button>
       <button id="shot">三视角拼图</button>
+      <button id="palette">原始配色</button>
     </div>
     <div id="viewhint">滚轮缩放 · 左键拖拽旋转 · 右键拖拽平移（任意视角下操作会自动切到自由视角）</div>
     <div id="boot"><div>
@@ -101,6 +102,20 @@
   <aside>
     <h1>机器鸭 zero-shot 驾驶舱</h1>
     <div class="sub">物理与策略都在你的浏览器里跑；API key 由你自带，只发给所选厂商。</div>
+
+    <h2>场景</h2>
+    <label for="scene-select">仿真场景（来自 scenes.json，换场景不用重启服务）</label>
+    <select id="scene-select"><option>载入中…</option></select>
+    <div class="hint" id="scene-info">—</div>
+    <details style="margin-top:6px">
+      <summary class="hint" style="cursor:pointer">自定义场景清单 URL（可扩展）</summary>
+      <div class="row" style="margin-top:6px">
+        <input id="manifest-url" placeholder="./scenes.json 或 https://…/scenes.json" spellcheck="false">
+        <button id="manifest-load">载入</button>
+      </div>
+      <div class="hint">把摊平好的场景目录 + 一份 scenes.json 放到任意静态托管上，填进来就能用。
+        本地新增场景：<code>python tools/flatten_scene.py &lt;场景id&gt;</code>，刷新页面即出现。</div>
+    </details>
 
     <h2>任务</h2>
     <label for="task-select">场景任务（来自该场景的 tasks.json）</label>

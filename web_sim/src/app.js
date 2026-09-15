@@ -20,6 +20,7 @@ import { ACTION_SPECS } from "./actions.js";
 
 const SCENE = "duck_workspace_v1";
 const POLICY = "alpha_walking";
+const ASSET_BASE = "./assets";
 
 const $ = (id) => document.getElementById(id);
 const boot = $("boot"), bootMsg = $("boot-msg"), logEl = $("log");
@@ -32,9 +33,15 @@ function log(msg) {
 }
 
 let duck = null, view = null, sceneIndex = null, agent = null, ready = false;
+let manifest = null, sceneBase = ASSET_BASE;
+let activeSceneId = null;
+const policySessions = new Map();   // ONNX 会话与场景无关，换场景时复用
+const sceneCache = new Map();       // 场景 id -> DuckSim，换回来秒开
+const SCENE_CACHE_MAX = 3;          // 三个场景都留得住；再多就得靠 dispose() 腾地方
 const control = { running: true, cmd: [0, 0, 0] };
 const driver = { agent: false };      // true = 由决策层下发指令，false = 手动按钮
 const manualIt = new ActionInterpreter();   // 手动按钮也走同一个解释器：按 token 走，不按速度走
+let switchingScene = false;           // 换场景期间停掉渲染与物理，CPU 全给 MuJoCo 解析网格
 
 // ---------------------------------------------------------------- 像素工具
 // 在页面内部分析画面。把 Uint8ClampedArray 整体搬过 CDP 太慢也没必要，
@@ -86,6 +93,93 @@ function stats(rec, { from = null } = {}) {
 }
 
 // ---------------------------------------------------------------- 主循环
+/** 读场景清单。可以指向任意静态托管（这就是「自定义导入场景」的入口）。 */
+async function loadManifest(url = "./scenes.json") {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`读不到场景清单 ${url}（HTTP ${res.status}）`);
+  const data = await res.json();
+  if (!Array.isArray(data.scenes) || !data.scenes.length) throw new Error(`${url} 里没有 scenes`);
+  // 清单与场景目录的相对关系：清单在 web_sim/ 下，场景在 web_sim/assets/ 下
+  const base = new URL(url, location.href);
+  sceneBase = new URL(base.href.replace(/[^/]*$/, "") + "assets", base).href.replace(/\/$/, "");
+  if (data.assetBase) sceneBase = new URL(data.assetBase, base).href.replace(/\/$/, "");
+  return data;
+}
+
+/**
+ * 激活一个场景。这是「换场景不用重启」的实现：
+ * 重建 DuckSim（物理模型），复用 ONNX 会话与渲染器，只把 mesh 换掉。
+ */
+async function activateScene(id) {
+  const entry = manifest.scenes.find((s) => s.id === id) || manifest.scenes[0];
+  const t0 = performance.now();
+  const dir = entry.dir || entry.id;
+  const base = `${sceneBase}/${dir}`;
+  const prevDuck = duck;
+  switchingScene = true;
+  try {
+    let next = sceneCache.get(entry.id) || null;
+    if (next) {
+      sceneCache.delete(entry.id);     // LRU：刚用过的排到最后
+      sceneCache.set(entry.id, next);
+      next.reset();                    // 复用的模型要回到关键帧，别接着上一局的状态
+      log(`[场景] ${entry.id} 命中缓存（解析网格是换场景唯一的大头，一次约 10 s）`);
+    } else {
+      next = await DuckSim.load({ sceneUrl: `${base}/scene.xml`, mjcfBase: `${base}/` });
+      while (sceneCache.size >= SCENE_CACHE_MAX) {
+        const [oldId, old] = sceneCache.entries().next().value;
+        sceneCache.delete(oldId);
+        if (old !== duck) old.dispose();   // 绝不释放正在用的那个
+      }
+      sceneCache.set(entry.id, next);
+    }
+    const tModel = performance.now();
+
+    const policyUrl = `${ASSET_BASE}/policies/${POLICY}.onnx`;
+    if (!policySessions.has(policyUrl)) {
+      policySessions.set(policyUrl, await DuckSim.createPolicySession(policyUrl));
+    }
+    await next.loadPolicy(policyUrl, { session: policySessions.get(policyUrl) });
+
+    const [metadata, tasks] = await Promise.all([
+      fetch(`${base}/metadata.json`).then((r) => (r.ok ? r.json() : {})),
+      fetch(`${base}/tasks.json`).then((r) => (r.ok ? r.json() : {})),
+    ]);
+    const idx = new SceneIndex(metadata, tasks);
+
+    const prevConfig = agent ? { ...agent.config } : null;
+    activeSceneId = entry.id;
+    duck = next;
+    sceneIndex = idx;
+    if (!view) {
+      view = new DuckView({ canvas: $("canvas"), THREE, OrbitControls, duck });
+      log(`[渲染] 建了 ${view.meshes.length} 个 geom mesh（共 ${duck.model.ngeom} 个）`);
+    } else {
+      view.rebuild(duck);
+    }
+    const tView = performance.now();
+    agent = new DuckAgent({ duck, view, scene: idx });
+    if (prevConfig) Object.assign(agent.config, prevConfig);
+    agent.onRecord = renderRecord;
+
+    $("scene-select").value = entry.id;
+    $("s-scene").textContent = entry.id;
+    const info = `${entry.title || entry.id}${entry.description ? " · " + entry.description : ""}`;
+    $("scene-info").textContent =
+      `${info}｜几何 ${duck.model.ngeom} · body ${duck.model.nbody} · 任务 ${idx.listTasks().length} 条 · ` +
+      `实体 ${idx.entityNames().length} 个 · ${((entry.meshBytes || 0) / 1048576).toFixed(1)} MB 网格`;
+    log(`[场景] ${entry.id} 切换完成 ${(performance.now() - t0).toFixed(0)} ms`);
+    log(`       拆开看：解析模型 ${(tModel - t0).toFixed(0)} ms ｜ 重建渲染 ${(tView - tModel).toFixed(0)} ms ｜ 其余 ${(performance.now() - tView).toFixed(0)} ms`);
+    return entry;
+  } finally {
+    switchingScene = false;
+    // 旧模型只在**不在缓存里**时才释放。放进缓存的模型要留着复用，
+    // 手滑把它 delete 掉的话，下次命中缓存拿到的就是个已释放对象。
+    const stillCached = [...sceneCache.values()].includes(prevDuck);
+    if (prevDuck && prevDuck !== duck && !stillCached) prevDuck.dispose();
+  }
+}
+
 async function loop() {
   let last = performance.now(), acc = 0, frames = 0, fpsAt = last;
   while (true) {
@@ -94,6 +188,7 @@ async function loop() {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     if (!ready) continue;
+    if (switchingScene) continue;      // 换场景时把这一帧整个让出去
     if (control.running) {
       acc = Math.min(acc + dt, 0.2);
       let n = 0;
@@ -140,29 +235,13 @@ async function boot_() {
       numThreads: 1,
     });
     const t0 = performance.now();
-    duck = await DuckSim.load({ sceneUrl: `./assets/${SCENE}/scene.xml`, mjcfBase: `./assets/${SCENE}/` });
-    log(`[场景] ${SCENE} 已加载：ngeom=${duck.model.ngeom} nbody=${duck.model.nbody} nu=${duck.model.nu}`);
+    manifest = await loadManifest("./scenes.json");
+    log(`[清单] scenes.json：${manifest.scenes.length} 个场景 —— ${manifest.scenes.map((s) => s.id).join(", ")}`);
+    const want = new URLSearchParams(location.search).get("scene");
+    await activateScene(want || manifest.scenes[0].id);
     log(`[物理] WASM 就绪 ${(performance.now() - t0).toFixed(0)} ms（含 mesh 解析）`);
-
-    const t1 = performance.now();
-    await duck.loadPolicy(`./assets/policies/${POLICY}.onnx`);
-    log(`[策略] ${POLICY}.onnx 就绪 ${(performance.now() - t1).toFixed(0)} ms`);
-
-    view = new DuckView({ canvas: $("canvas"), THREE, OrbitControls, duck });
-    log(`[渲染] 建了 ${view.meshes.length} 个 geom mesh（共 ${duck.model.ngeom} 个）`);
-
-    const metaUrl = `./assets/${SCENE}/metadata.json`;
-    const tasksUrl = `./assets/${SCENE}/tasks.json`;
-    const [metadata, tasks] = await Promise.all([
-      fetch(metaUrl).then((r) => (r.ok ? r.json() : {})),
-      fetch(tasksUrl).then((r) => (r.ok ? r.json() : {})),
-    ]);
-    sceneIndex = new SceneIndex(metadata, tasks);
-    agent = new DuckAgent({ duck, view, scene: sceneIndex });
-    log(`[场景元数据] 可寻址实体 ${sceneIndex.entityNames().length} 个，精选任务 ${sceneIndex.listTasks().length} 条`);
     view.frame();
 
-    $("s-scene").textContent = SCENE;
     $("s-policy").textContent = POLICY;
     boot.style.display = "none";
     ready = true;
@@ -229,8 +308,51 @@ function renderRecord(rec) {
   while (box.children.length > 12) box.lastChild.remove();
 }
 
-function setupUi() {
-  // ---- 任务下拉：直接列场景包里的 task id，避免“输入对不上就没评分”
+/** 场景下拉 + 自定义清单入口。换场景不重启：重建模型、复用渲染器与 ONNX 会话。 */
+function setupSceneSelect() {
+  const sceneSel = $("scene-select");
+  const fill = () => {
+    sceneSel.innerHTML = "";
+    for (const s of manifest.scenes) {
+      const o = document.createElement("option");
+      o.value = s.id;
+      o.textContent = `${s.title || s.id}${s.tags?.length ? "（" + s.tags.join("/") + "）" : ""}`;
+      sceneSel.appendChild(o);
+    }
+    sceneSel.value = activeSceneId || manifest.scenes[0].id;
+  };
+  fill();
+  const go = async (id) => {
+    if (!id) return;
+    $("scene-info").textContent = "正在切换场景…";
+    const t0 = performance.now();
+    try {
+      await activateScene(id);
+      refreshTaskSelect();
+      log(`[场景] 切换总耗时 ${(performance.now() - t0).toFixed(0)} ms（页面与服务都没有重启）`);
+    } catch (e) {
+      $("scene-info").textContent = `切换失败：${e}`;
+      log(`[错误] 切换场景失败：${e}`);
+    }
+  };
+  sceneSel.onchange = () => go(sceneSel.value);
+  $("manifest-load").onclick = async () => {
+    const url = $("manifest-url").value.trim();
+    if (!url) return;
+    try {
+      manifest = await loadManifest(url);
+      fill();
+      await go(manifest.scenes[0].id);
+      log(`[清单] 已切到 ${url}（${manifest.scenes.length} 个场景）`);
+    } catch (e) {
+      log(`[错误] 读清单失败：${e}`);
+      $("scene-info").textContent = String(e);
+    }
+  };
+}
+
+/** 任务下拉：直接列场景包里的 task id，避免“输入对不上就没评分”。换场景后要重建。 */
+function refreshTaskSelect() {
   const sel = $("task-select");
   const tasks = sceneIndex.listTasks();
   sel.innerHTML = "";
@@ -245,17 +367,6 @@ function setupUi() {
   free.textContent = "（用下面那句话）";
   sel.appendChild(free);
 
-  const applyTask = () => {
-    const isFree = sel.value === "__free__";
-    const text = isFree ? $("task-text").value.trim() : "";
-    const task = agent.setTask({ taskId: isFree ? "" : sel.value, text });
-    $("task-info").textContent = `目标 = ${task.target} · 意图 = ${task.intent} · 允许动作 ${task.allowed.length} 个`;
-    $("s-target").textContent = task.target;
-    $("s-minrange").textContent = "—";
-    $("decisions").innerHTML = '<div class="hint">还没有决策。点“开始”。</div>';
-    log(`[任务] ${task.taskId || "(自由文本)"} ${task.text} → target=${task.target} intent=${task.intent}`);
-    return task;
-  };
   sel.onchange = () => {
     if (sel.value !== "__free__") {
       const t = sceneIndex.task(sel.value);
@@ -266,7 +377,26 @@ function setupUi() {
   };
   $("task-text").onchange = () => { sel.value = "__free__"; applyTask(); };
   applyTask();
+}
 
+/**
+ * 读取界面上的任务选择并交给 agent。放在模块级是因为「运行」按钮也要用它 ——
+ * 之前定义在 refreshTaskSelect 里面，拆函数之后按钮就看不见了（运行时报 applyTask is not defined）。
+ */
+function applyTask() {
+  const sel = $("task-select");
+  const isFree = sel.value === "__free__";
+  const text = isFree ? $("task-text").value.trim() : "";
+  const task = agent.setTask({ taskId: isFree ? "" : sel.value, text });
+  $("task-info").textContent = `目标 = ${task.target} · 意图 = ${task.intent} · 允许动作 ${task.allowed.length} 个`;
+  $("s-target").textContent = task.target;
+  $("s-minrange").textContent = "—";
+  $("decisions").innerHTML = '<div class="hint">还没有决策。点“开始”。</div>';
+  log(`[任务] ${task.taskId || "(自由文本)"} ${task.text} → target=${task.target} intent=${task.intent}`);
+  return task;
+}
+
+function setupDecisionUi() {
   // ---- 决策模式 + BYO key（只存本机）
   const saved = (() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { return {}; } })();
   const prov = $("llm-provider");
@@ -368,6 +498,21 @@ function setupUi() {
     a.click();
     log("[截图] 三视角拼图已下载");
   };
+
+  // ---- 配色：默认美化，点一下切回场景包的原始材质（方便对照/排查）
+  $("palette").onclick = (e) => {
+    const next = view.palette === "duck" ? "raw" : "duck";
+    view.applyPalette(next);
+    e.target.textContent = next === "duck" ? "原始配色" : "美化配色";
+    view.frame();
+    log(`[配色] 切到 ${next === "duck" ? "美化配色" : "场景原始材质"}`);
+  };
+}
+
+function setupUi() {
+  setupSceneSelect();
+  refreshTaskSelect();
+  setupDecisionUi();
 }
 
 // ---------------------------------------------------------------- 测试钩子
