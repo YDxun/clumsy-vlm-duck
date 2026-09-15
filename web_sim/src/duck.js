@@ -17,6 +17,8 @@ export const HOME = Float64Array.from([0.0, -0.0873, -0.4579, -0.0049, 0.4530, 0
   0.0, 0.0, 0.0, 0.0873, 0.4579, 0.0049, -0.4530]);
 export const PHYS_DT = 0.005, DECIMATION = 4, CONTROL_DT = PHYS_DT * DECIMATION;
 export const NJ = 14, OBS_DIM = 61;
+/** 头部四个关节（见场景包 metadata.yaml 的 robot.head_joints）。 */
+export const HEAD_JOINTS = ["neck_pitch", "head_pitch", "head_yaw", "head_roll"];
 
 /**
  * onnxruntime-web 的运行环境设置。浏览器里必须调用一次：
@@ -47,6 +49,19 @@ function quatRotateInverse(quat, vec) {
           vec[2] - w * t[2] + (x * t[1] - y * t[0])];
 }
 
+/**
+ * 某个 body 的**前向**（局部 x 轴在世界里的方向）。
+ *
+ * MuJoCo 的 xmat 是行主序的旋转矩阵 R，世界坐标 = R @ 局部坐标，
+ * 所以“局部 x 轴在世界里的方向”是 R 的**第 0 列** = 展平下标 0, 3, 6。
+ * 写成 [0], [1], [2] 就变成第 0 行（= 转置），小角度下几乎看不出差别，
+ * 一旦抬头/低头几十度，方向就直接反了 —— 这正是当初“低头”看起来像“抬头”的原因。
+ */
+export function bodyForward(xmat, bodyId) {
+  const o = bodyId * 9;
+  return [xmat[o], xmat[o + 3], xmat[o + 6]];
+}
+
 /** 四元数 (w,x,y,z) -> 3x3 旋转矩阵，行主序展平成 9 个元素（与 MuJoCo 的 xmat 同存储方式）。 */
 export function quatToMat(q) {
   const [w, x, y, z] = q;
@@ -69,10 +84,14 @@ export class DuckSim {
     this.ballGeom = this.geomIndicesUnderBody(this.bodies.ball);
     this.gyroAdr = model.sensor_adr[mujoco.mj_name2id(model, OBJ_SENSOR, "imu_ang_vel")];
     this.jointQpos = []; this.jointQvel = [];
+    const OBJ_JOINT = mjObj(mujoco, "mjOBJ_JOINT");
+    this.headCtrl = {};
     for (let i = 0; i < model.nu; i++) {
       const jid = model.actuator_trnid[i * 2];
       this.jointQpos.push(model.jnt_qposadr[jid]);
       this.jointQvel.push(model.jnt_dofadr[jid]);
+      const jname = mujoco.mj_id2name(model, OBJ_JOINT, jid);
+      if (HEAD_JOINTS.includes(jname)) this.headCtrl[jname] = i;
     }
     this.lastAction = new Float64Array(NJ);
     this.policy = null;
@@ -114,6 +133,24 @@ export class DuckSim {
     return this.geomIndicesUnderBody(this.bodies.trunk);
   }
 
+  /**
+   * 把某个带自由关节的物体（球、方块、杯子…）放到指定位置。
+   * 自由关节名字是 `<body>_free`，qpos 地址直接来自 `jnt_qposadr`，不用猜偏移。
+   */
+  placeBody(bodyName, { x = 0, y = 0, z = 0.05, yaw = 0 } = {}) {
+    const jid = this.mujoco.mj_name2id(this.model, mjObj(this.mujoco, "mjOBJ_JOINT"), `${bodyName}_free`);
+    if (jid < 0) return false;
+    const adr = this.model.jnt_qposadr[jid];
+    const q = this.data.qpos;
+    q[adr] = x; q[adr + 1] = y; q[adr + 2] = z;
+    const h = yaw / 2;
+    q[adr + 3] = Math.cos(h); q[adr + 4] = 0; q[adr + 5] = 0; q[adr + 6] = Math.sin(h);
+    const dadr = this.model.jnt_dofadr[jid];
+    for (let k = 0; k < 6; k++) this.data.qvel[dadr + k] = 0;
+    this.mujoco.mj_forward(this.model, this.data);
+    return true;
+  }
+
   /** 与 Python LocalSim.reset() 一致：keyframe + 零速 + 额定姿态。 */
   reset() {
     this.mujoco.mj_resetDataKeyframe(this.model, this.data, 0);
@@ -153,7 +190,7 @@ export class DuckSim {
   /** 头体位姿（躯干坐标系下的真实姿态，不是相机）。 */
   headPose() {
     const h = this.bodies.head, p = this.data.xpos;
-    const fwd = [this.data.xmat[h * 9], this.data.xmat[h * 9 + 1], this.data.xmat[h * 9 + 2]];
+    const fwd = bodyForward(this.data.xmat, h);
     const yaw = Math.atan2(fwd[1], fwd[0]);
     const pitch = Math.asin(Math.max(-1, Math.min(1, fwd[2])));
     return { x: p[h * 3], y: p[h * 3 + 1], z: p[h * 3 + 2], fwd, yaw, pitch };
@@ -172,13 +209,85 @@ export class DuckSim {
    */
   headCamPose() {
     const h = this.bodies.head, p = this.data.xpos;
-    const fwd = [this.data.xmat[h * 9], this.data.xmat[h * 9 + 1], this.data.xmat[h * 9 + 2]];
+    const fwd = bodyForward(this.data.xmat, h);
     const pos = [p[h * 3] + fwd[0] * 0.09, p[h * 3 + 1] + fwd[1] * 0.09, p[h * 3 + 2] + 0.03];
     const t = (20 * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
     let dir = [fwd[0] * c, fwd[1] * c, fwd[2] * c - s];
     const n = Math.hypot(dir[0], dir[1], dir[2]);
     dir = dir.map((v) => v / n);
     return { pos, dir, fovy: this.fovy ?? 45 };
+  }
+
+  /**
+   * 头摄的完整相机基。渲染和「目标可不可见」的判断共用这一份数学，
+   * 免得出现“画面里有球、状态却说看不见”这种自相矛盾。
+   *
+   * right = forward × 世界上方（与 `duck_play/perception/camera.py` 的 DuckHeadCam 同约定：
+   * MuJoCo 相机图像右方向是 forward×up，不是 up×forward）。
+   *
+   * 注意两个 FOV 故意不同：
+   *   - 渲染用 `fovy`（= 模型的 vis.global_.fovy，45°），因为 VLM 一直看的就是这个构图；
+   *   - 可见性判断用 `hfovDeg`（= DuckHeadCam 的 62° 水平 → 48.5° 垂直），
+   *     因为 Python 端的 range/bearing 标签就是按这个模型发的。
+   *   3.5° 的差是上游本来就有的，这里保持两边一致而不是各改各的。
+   */
+  headCamBasis() {
+    const { pos, dir } = this.headCamPose();
+    const z = [0, 0, 1];
+    let right = [dir[1] * z[2] - dir[2] * z[1], dir[2] * z[0] - dir[0] * z[2], dir[0] * z[1] - dir[1] * z[0]];
+    let n = Math.hypot(right[0], right[1], right[2]);
+    if (n < 1e-6) right = [1, 0, 0];
+    else right = right.map((v) => v / n);
+    const up = [right[1] * dir[2] - right[2] * dir[1],
+                right[2] * dir[0] - right[0] * dir[2],
+                right[0] * dir[1] - right[1] * dir[0]];
+    return { pos, forward: dir, right, up, fovy: this.fovy ?? 45, hfovDeg: 62 };
+  }
+
+  /** 世界点是否落在头摄视野内；落在里面则返回归一化像素坐标 (u,v) ∈ [0,1)。 */
+  projectToHeadCam(xyz, { hfovDeg = 62, aspect = 4 / 3, znear = 0.05 } = {}) {
+    const { pos, forward: f, right: r, up: u } = this.headCamBasis();
+    const v = [xyz[0] - pos[0], xyz[1] - pos[1], xyz[2] - pos[2]];
+    const zc = v[0] * f[0] + v[1] * f[1] + v[2] * f[2];
+    if (zc <= znear) return null;
+    const xc = v[0] * r[0] + v[1] * r[1] + v[2] * r[2];
+    const yc = v[0] * u[0] + v[1] * u[1] + v[2] * u[2];
+    const hfov = (hfovDeg * Math.PI) / 180;
+    const fx = 0.5 / Math.tan(hfov / 2);                 // 归一化：半宽 = 1
+    const vfov = 2 * Math.atan(Math.tan(hfov / 2) / aspect);
+    const fy = 0.5 / Math.tan(vfov / 2);
+    const sx = 0.5 + (fx * xc) / zc;
+    const sy = 0.5 - (fy * yc) / zc;
+    if (sx < 0 || sx >= 1 || sy < 0 || sy >= 1) return null;
+    return { u: sx, v: sy, depth: zc };
+  }
+
+  /**
+   * 视线是否被场景几何挡住 —— 逐条对应 Python `DuckStateSensor._is_occluded`：
+   *   命中距离 < 0 或者 ≥ 目标距离-0.02 → 没挡住（打到目标本身或更远）
+   *   命中距离 < 0.05                     → 是鸭子自己头颈的壳，不算遮挡
+   *   打到的 geom 属于目标 body            → 没挡住
+   *
+   * WASM 绑定的 mj_ray 要 9 个参数（第 9 个是版本差异多出来的，传 null 即可，
+   * 第 8 个 geomid 是输出用的 Int32Array）。
+   */
+  isOccluded(targetXyz, targetBodyId) {
+    const { pos } = this.headCamBasis();
+    const dv = [targetXyz[0] - pos[0], targetXyz[1] - pos[1], targetXyz[2] - pos[2]];
+    const dist = Math.hypot(dv[0], dv[1], dv[2]);
+    if (dist < 1e-6) return false;
+    const dir = dv.map((v) => v / dist);
+    const gid = new Int32Array([-1]);
+    let hit;
+    try {
+      hit = this.mujoco.mj_ray(this.model, this.data, new Float64Array(pos), new Float64Array(dir), null, 1, -1, gid, null);
+    } catch {
+      return false;   // 绑定不可用时按“没遮挡”处理，与 Python 的 try/except 一致
+    }
+    if (!(hit >= 0) || hit >= dist - 0.02) return false;
+    if (hit < 0.05) return false;
+    if (gid[0] < 0) return false;
+    return this.model.geom_bodyid[gid[0]] !== targetBodyId;
   }
 
   /**
@@ -201,12 +310,25 @@ export class DuckSim {
   }
 
   /** 一个控制步：观测 -> 策略 -> 力矩 -> DECIMATION 次物理子步。 */
-  async stepAsync(cmd = [0, 0, 0]) {
+  /**
+   * 一个控制步。
+   * @param {number[]} cmd 速度指令 [vx, vy, wz]
+   * @param {object|null} headDelta 头部关节偏移（LOOK_DOWN 之类），
+   *        在走路策略算出动作**之后**覆盖对应执行器 —— 与 Python sim_server 的做法一致：
+   *        d.ctrl[head_idx] = DEFAULT_POSE[head_idx] + delta
+   */
+  async stepAsync(cmd = [0, 0, 0], headDelta = null) {
     const obs = this.buildObs(cmd);
     const out = await this.policy.run({ [this.policyIn]: new ort.Tensor("float32", obs, [1, OBS_DIM]) });
     const action = out[this.policyOut].data;
     this.lastAction.set(action);
     for (let i = 0; i < NJ; i++) this.data.ctrl[i] = HOME[i] + action[i];
+    if (headDelta) {
+      for (const [name, delta] of Object.entries(headDelta)) {
+        const idx = this.headCtrl[name];
+        if (idx !== undefined) this.data.ctrl[idx] = HOME[idx] + delta;
+      }
+    }
     for (let i = 0; i < DECIMATION; i++) this.mujoco.mj_step(this.model, this.data);
     this.steps += 1;
     return action;

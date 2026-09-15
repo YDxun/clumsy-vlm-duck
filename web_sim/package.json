@@ -9,7 +9,9 @@
     "verify:wasm": "node tools/verify_wasm.mjs",
     "verify:policy": "node tools/verify_policy.mjs",
     "verify:render": "node tools/verify_render.mjs",
-    "verify": "npm run verify:wasm && npm run verify:render"
+    "test:agent": "node tools/test_agent.mjs",
+    "verify:agent": "node tools/verify_agent.mjs",
+    "verify": "npm run verify:wasm && npm run verify:render && npm run test:agent && npm run verify:agent"
   },
   "dependencies": {
     "@mujoco/mujoco": "^3.12.0",

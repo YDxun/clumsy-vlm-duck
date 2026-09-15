@@ -4,7 +4,7 @@
 > 访客自带 API key——而不是把 quackd 的代码搬过来。本目录是我们自己的实现，
 > 并把「哪些地方必须为浏览器改、为什么」记录在这里。
 
-**当前进度：① 渲染器 ✅ ｜ ② 最小决策层 ⬜ ｜ ③ 页面 ⬜**
+**当前进度：① 渲染器 ✅ ｜ ② 最小决策层 ✅ ｜ ③ 页面 ⬜**
 
 ## 一、可行性（已实测，不是推测）
 
@@ -16,6 +16,7 @@
 | 渲染 | three.js 按 `geom_xpos/geom_xmat` 直接画，**画面与物理逐像素对得上** | `tools/verify_render.mjs` 14 项全过：走得越远，画面里鸭子位移 64.4 px vs 几何投影 63.1 px（差 1.3 px） |
 | 性能 | 浏览器里 **648 控制步/秒 = 13× 实时** | 同上 T6（含 ONNX 推理，1.54 ms/步） |
 | LLM | 浏览器直连现有 Qwen 端点**被 CORS 允许** | `OPTIONS https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions` → `access-control-allow-origin: <origin>`，允许 POST + `authorization,content-type` |
+| 决策 | 8 个离散 token 的闭环在浏览器里跑通 | `tools/verify_agent.mjs` 33 项全过；`tools/test_agent.mjs` 87 项全过 |
 
 ## 二、为浏览器做的**两处必要适配**（踩出来的，别改回去）
 
@@ -73,16 +74,29 @@ MuJoCo 会给 mesh geom 自动填 `geom_size` = 该 mesh 的包围盒半长，�
 
 ```
 web_sim/
-├── index.html              # ① 验证页：四视角切换 + 站立/前进/转向 + 状态面板
+├── index.html              # ① 验证页：四视角切换 + 站立/前进/转向 + 状态面板（③ 扩成正式页面）
 ├── src/
 │   ├── duck.js             # DuckSim：MuJoCo WASM 物理 + ONNX 策略 + 观测/相机/几何查询
 │   ├── view.js             # DuckView：geom -> three.js mesh，四种相机
-│   └── app.js              # 页面装配 + window.__sim 测试钩子（像素分析都在页面内做）
+│   ├── app.js              # 页面装配 + window.__sim 测试钩子（像素分析都在页面内做）
+│   └── （② 决策层，见下）
+│       ├── actions.js      # 8 个离散 token + 别名 + 容错解析
+│       ├── interpreter.js  # token -> 速度指令 / 锁存的头部姿态
+│       ├── state.js        # 本体感知 + 「只有看见才给距离」的闸门
+│       ├── scene.js        # metadata.json 索引：自然语言 -> body
+│       ├── intent.js       # 自由文本 -> 意图（approach/manipulate/pose/…）
+│       ├── prompt.js       # 与 Python 端同字段的 zero-shot 提示词
+│       ├── llm.js          # BYO key：Qwen/OpenAI 兼容、Gemini、Claude
+│       ├── rules.js        # 可消融的规则层 + 无 key 的 reflex 兜底
+│       └── agent.js        # 感知-推理-动作闭环状态机
 ├── tools/
 │   ├── flatten_scene.py    # 摊平 duck_scenes 场景（含 include、mesh、力矩限幅）
 │   ├── verify_wasm.mjs     # 无浏览器：WASM 能否加载、物理是否与 Python 一致
 │   ├── verify_policy.mjs   # 无浏览器：物理+策略闭环
 │   ├── verify_render.mjs   # 真 Chrome：14 项像素级断言
+│   ├── test_agent.mjs      # 纯 Node：决策层 87 项单元测试
+│   ├── verify_agent.mjs    # 真 Chrome：33 项闭环断言（含真 HTTP + 跨域）
+│   ├── mock_llm.mjs        # 假 OpenAI 端点，验证 BYO key 链路
 │   └── serve.mjs           # 极简静态服务器（.wasm/.onnx 的 MIME 很关键）
 ├── artifacts/              # verify_render 出的四视角截图
 └── assets/                 # 生成物（mesh、ONNX），默认不进 git
@@ -100,10 +114,12 @@ F:\anaconda_ydx\python.exe tools\flatten_scene.py duck_workspace_v1
 copy ..\research\artifacts\official_policies\alpha_stand.onnx  assets\policies\
 copy ..\research\artifacts\official_policies\alpha_walking.onnx assets\policies\
 
-# 3) 三层验证，从便宜到贵
+# 3) 四层验证，从便宜到贵
 node tools\verify_wasm.mjs      duck_workspace_v1
 node tools\verify_policy.mjs    alpha_walking 8 0.3 0
 node tools\verify_render.mjs                     # 真 Chrome，出截图
+node tools\test_agent.mjs                        # 决策层单测，秒级
+node tools\verify_agent.mjs                      # 真 Chrome 跑闭环，约 4 分钟
 
 # 4) 交互体验
 node tools\serve.mjs            # 打开 http://127.0.0.1:8787/
@@ -111,14 +127,82 @@ node tools\serve.mjs            # 打开 http://127.0.0.1:8787/
 
 ## 六、还没做的（诚实清单）
 
-- **② 最小决策层**：`duck_vlm/`（Python，约 2700 行）要在浏览器里重写成 JS——至少包含
-  6~8 个动作 token + 步态解释器、提示词渲染、`intent.py` 的目标与意图推断。
-  现在页面上的「站立/前进/转向」是写死的三个指令，**还不接受自然语言**。
-- **③ 页面**：任务输入、动作日志、BYO key 面板、三视角录像。
+- **③ 页面**：任务下拉（直接列场景包里的 task id）、BYO key 输入框、动作日志（带每步的图）、
+  三视角录像。现在决策层只能从 `window.__sim` 里调用，**还没有正经 UI**。
+- **技能 token 还没进最小集**：KICK_L/KICK_R/SIT/STAND_UP/ROLL/DANCE 需要各自的 ONNX
+  状态机（`_dev_cockpit/local_kick.py` 那一套），所以「踢球进区域」「摔倒起身」这类任务
+  目前跑不了。词表放大的代价是 zero-shot 选择变难，值得单独一步做。
+- **遮挡判断没用 `mj_ray`**：这个 WASM 构建的 `mj_ray` 要 9 个参数（C 只有 8 个），
+  两个候选槽位都写不进 geomid，拿不到「打到的是谁」就没法判断是不是目标自己。
+  改成 `view.maskVisible()`：把目标临时换成不受光照影响的品红色渲一张头摄图，
+  数像素 —— 它测的就是 VLM 那张图，连 FOV 和贴图遮挡都算进去，比射线更贴近事实。
 - **VLM 观测图分辨率**：Python 头摄是 320×240（4:3），网页画布随窗口变。
-  接决策层时要用独立的离屏 4:3 渲染目标，别直接把网页画布喂给 VLM。
+  `captureHeadCam()` 已经用 4:3 视口单独渲一次再缩到 320×240，两边构图一致。
 - **体积**：单场景 20.6 MB mesh + 9.9 MB WASM + 0.76 MB ONNX。首次加载要进度条。
 - **发布形态**：`index.html` 的 importmap 现在指向 `node_modules/`（本地离线可用）；
   发成静态站点时换成 jsDelivr 固定版本即可，代码不用动。
 - **资产许可**：mesh 的许可仍需与上游确认；结论明确前建议照 quackd 的做法
   **不打包、运行时从上游固定 commit 拉取**。
+
+## 七、② 决策层：做了什么、怎么验证的
+
+### 8 个 token（`src/actions.js`）
+
+```
+FWD / BACK / TURN_L / TURN_R / STOP / LOOK_DOWN / HEAD_CENTER / DONE
+```
+
+语义、时长、速度指令都对齐 `duck_vlm/actions.py`，只是砍到最小可用集。
+技能类 token（踢球、翻滚、坐下、起身）**有意不放进最小集**：词表越大，
+zero-shot 越容易选错，而且每个技能都要带一套 ONNX 状态机。
+
+### 「看不见就不给距离」
+
+`src/state.js` 只在**目标真的落在头摄画面里**、且视线没被挡时，
+才把 `range/bearing/elevation` 写进提示词；否则是 `not_found`。
+鸭子没有深度传感器，这条闸门就是防止仿真真值偷偷泄漏给模型。
+
+验证方式不是读代码，而是**对像素**：把头摄画面里隐藏球再渲一张，差异像素就是球在
+画面里的位置。正对球时状态给的 `uv` 与像素质心差 **1.2%**；背对球时状态是 `not_found`，
+差分也是 **0 像素**。
+
+遮挡也一起验了：把球放在圆柱正后方、鸭子站另一边，视线穿过圆柱轴心 ——
+球**仍在相机视锥内**（uv 0.50, 0.57），但状态必须是看不见。
+这条用例专门用来区分「真的被挡住」和「只是出画」：换成 `mj_ray` 那套会误判成可见。
+
+### 低头（LOOK_DOWN）覆盖多远（实测）
+
+归一化图像里的 v 坐标（0=上沿，1=下沿，`!` = 出画）：
+
+```
+偏移\距离   0.14   0.18   0.22   0.30   0.40   0.55   0.90
+   0       !1.95  !1.48  !1.20   0.86   0.62   0.42   0.21   ← 正常前视
+   0.35    !1.27   0.98   0.79   0.52   0.30   0.10  !-0.14
+   0.60     0.87   0.65   0.49   0.24   0.02  !-0.21  !-0.50  ← LOOK_DOWN
+   1.00     0.35   0.17   0.01  !-0.26 !-0.54  !-0.88  !-1.39
+```
+
+`LOOK_DOWN`(+0.60) 覆盖 **0.14~0.42 m**，与提示词里写的「0.15-0.45 m」一致。
+实测复现并解决了原始死锁：贴到球前 0.18 m → 球掉到画面下方（差分 0 像素，状态 `not_found`）
+→ 规则触发 `LOOK_DOWN` → 头部关节压到 `head_pitch` ctrl 0.949 → 球回到画面 `uv=(0.49, 0.68)`。
+
+### 规则层（`src/rules.js`，每条可单独关掉做消融）
+
+| 规则 | 作用 |
+| --- | --- |
+| `fallen_stop` | 摔倒时拒绝位移动作 |
+| `anti_stuck` | 连续 FWD 但位移 < 2 cm → 改左转脱困 |
+| `anti_spin` | 左右互摆地原地转 → 改前进换视角 |
+| `look_down_when_lost` | 0.6 m 内丢目标 → 强制低头找 |
+
+没有 key 时用 `reflexToken()` 兜底（Python 端 dry_run 的对应物），
+所以**离线也能演示完整闭环**。
+
+### 又踩到一个坑：旋转矩阵的行 ≠ 列
+
+读头部朝向时写成 `xmat[body*9 + 0..2]`（第 0 **行**），而「局部 x 轴在世界里的方向」
+是旋转矩阵的第 0 **列**（下标 0/3/6）。两者互为转置：小角度下几乎一样，
+几十度就直接反向 —— 于是「低头」看起来像「抬头」，头摄画面 2/3 是天空。
+Python 侧同条件测到 -60.3° 俯角，JS 侧测到 +50.5°，一比就露馅。
+现在 `duck.js` 的 `bodyForward()` 统一走列，并在 `verify_agent.mjs` 的 T0 里
+加了回归测试（默认俯角 29.3°、低头 → 56.0°、抬头 → -18.7°）。

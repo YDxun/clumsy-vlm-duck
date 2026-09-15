@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -83,6 +84,30 @@ def bake_force_range(xml: str, limit: float = FORCE_LIMIT) -> tuple[str, int]:
     return out, count
 
 
+def export_sidecar(scene_dir: Path, out_dir: Path) -> dict:
+    """把场景包的 metadata.yaml / tasks.yaml 转成 JSON 一起发到浏览器。
+
+    浏览器里不想塞一个 YAML 解析器，而这两份文件正是决策层要用的：
+      - metadata.yaml: objects/zones/beacon 的 body 名 + semantic_labels
+        → “去红方块” → obj_cube_red、“绿色区域” → zone_green 的解析表
+      - tasks.yaml: 现成的 task id，给页面做任务下拉（避免“输入对不上就没评分”）
+    """
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover - 环境问题，直接说清楚
+        raise SystemExit(f"需要 PyYAML 来转换场景元数据: {exc}")
+    written = {}
+    for name in ("metadata", "tasks"):
+        src = scene_dir / f"{name}.yaml"
+        if not src.exists():
+            continue
+        data = yaml.safe_load(src.read_text(encoding="utf-8"))
+        dst = out_dir / f"{name}.json"
+        dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        written[name] = dst.name
+    return written
+
+
 def flatten(scene_id: str, out_root: Path = OUT_ROOT) -> dict:
     scene_dir = SCENES / scene_id
     scene_xml = scene_dir / "scene.xml"
@@ -121,10 +146,11 @@ def flatten(scene_id: str, out_root: Path = OUT_ROOT) -> dict:
             missing.append(name)
 
     (out_dir / "scene.xml").write_text(flat, encoding="utf-8", newline="\n")
+    sidecars = export_sidecar(scene_dir, out_dir)
     total = sum((assets_dir / n).stat().st_size for n in copied)
     return {"scene": scene_id, "out": str(out_dir), "meshes": len(copied),
             "missing": missing, "bytes": total, "xml_bytes": len(flat),
-            "actuators": n_act, "force_limit": FORCE_LIMIT}
+            "actuators": n_act, "force_limit": FORCE_LIMIT, "sidecars": sidecars}
 
 
 def main() -> int:

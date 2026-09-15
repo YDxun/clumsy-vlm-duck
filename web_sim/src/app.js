@@ -11,6 +11,8 @@
 import * as THREE from "three";
 import { DuckSim, configureOrt, CONTROL_DT } from "./duck.js";
 import { DuckView } from "./view.js";
+import { SceneIndex } from "./scene.js";
+import { DuckAgent } from "./agent.js";
 
 const SCENE = "duck_workspace_v1";
 const POLICY = "alpha_walking";
@@ -25,8 +27,9 @@ function log(msg) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-let duck = null, view = null, ready = false;
+let duck = null, view = null, sceneIndex = null, agent = null, ready = false;
 const control = { running: true, cmd: [0, 0, 0] };
+const driver = { agent: false };      // true = 由决策层下发指令，false = 手动按钮
 
 // ---------------------------------------------------------------- 像素工具
 // 在页面内部分析画面。把 Uint8ClampedArray 整体搬过 CDP 太慢也没必要，
@@ -90,7 +93,13 @@ async function loop() {
       acc = Math.min(acc + dt, 0.2);
       let n = 0;
       while (acc >= CONTROL_DT && n < 5) {
-        await duck.stepAsync(control.cmd);
+        if (driver.agent && agent) {
+          const out = agent.tick(CONTROL_DT);
+          await duck.stepAsync(out.cmd, out.headDelta);
+          $("s-phase").textContent = out.phase;
+        } else {
+          await duck.stepAsync(control.cmd);
+        }
         acc -= CONTROL_DT;
         n++;
       }
@@ -128,6 +137,16 @@ async function boot_() {
 
     view = new DuckView({ canvas: $("canvas"), THREE, duck });
     log(`[渲染] 建了 ${view.meshes.length} 个 geom mesh（共 ${duck.model.ngeom} 个）`);
+
+    const metaUrl = `./assets/${SCENE}/metadata.json`;
+    const tasksUrl = `./assets/${SCENE}/tasks.json`;
+    const [metadata, tasks] = await Promise.all([
+      fetch(metaUrl).then((r) => (r.ok ? r.json() : {})),
+      fetch(tasksUrl).then((r) => (r.ok ? r.json() : {})),
+    ]);
+    sceneIndex = new SceneIndex(metadata, tasks);
+    agent = new DuckAgent({ duck, view, scene: sceneIndex });
+    log(`[场景元数据] 可寻址实体 ${sceneIndex.entityNames().length} 个，精选任务 ${sceneIndex.listTasks().length} 条`);
     view.frame();
 
     $("s-scene").textContent = SCENE;
@@ -170,9 +189,48 @@ window.__duckReady = false;
 window.__sim = {
   get duck() { return duck; },
   get view() { return view; },
-  scene: SCENE, policy: POLICY,
+  get agent() { return agent; },
+  get scene() { return sceneIndex; },
+  sceneId: SCENE, policy: POLICY,
   pause() { control.running = false; },
   resume() { control.running = true; },
+  /** 切换指令来源：true = 决策层（agent），false = 手动按钮。 */
+  setDriver(useAgent) { driver.agent = !!useAgent; },
+  /** agent 配置（BYO key、模式等）。 */
+  configureAgent(patch) { Object.assign(agent.config, patch); return { ...agent.config }; },
+  setTask(opts) { agent.records.length = 0; return agent.setTask(opts); },
+  /**
+   * 跑一段**完整闭环**：决策 -> 规则 -> 解释器 -> 物理，直到跑够决策数或步数。
+   * dt 用控制步长（0.02 s）而不是真实墙钟时间，这样动作时长是仿真时间，
+   * 结果与机器快慢无关、可复现。
+   */
+  async runAgent({ maxDecisions = 12, maxSteps = 1200, dt = 0.02 } = {}) {
+    control.running = false;
+    driver.agent = true;
+    const runLog = [];
+    let steps = 0;
+    const t0 = performance.now();
+    while (steps < maxSteps && agent.phase !== "finished" && agent.phase !== "error" &&
+           agent.records.length < maxDecisions) {
+      await new Promise((r) => setTimeout(r, 0));   // 让 fetch / 微任务有机会推进
+      const out = agent.tick(dt);
+      await duck.stepAsync(out.cmd, out.headDelta);
+      steps++;
+      runLog.push(`${agent.phase}:${out.cmd.map((v) => v.toFixed(2)).join(",")}`);
+      view.frame();
+    }
+    driver.agent = false;
+    return {
+      steps, decisions: agent.records.length, phase: agent.phase,
+      wallMs: performance.now() - t0,
+      pose: { ...duck.pose }, upright: duck.upright(),
+      distanceToTarget: agent.records[0]?.state?.targetRangeM ?? null,
+      minRange: agent.minRange,
+      lastNote: agent.lastNote, error: agent.lastError,
+      history: agent.history.slice(0, 12),
+      tail: runLog.slice(-6),
+    };
+  },
   setMode(m) { view.setMode(m); view.frame(); },
   /** 停下来、重置、按固定动作跑 n 个控制步（确定性，不受 rAF 节奏影响）。 */
   async runSteps(n, cmd = [0, 0, 0]) {
@@ -183,6 +241,76 @@ window.__sim = {
   },
   reset() { duck.reset(); view.frame(); },
   render() { view.frame(); },
+  /** 调试用：把鸭子直接放到某个位置/朝向（自由关节 qpos），并清零速度。 */
+  placeDuck({ x = 0, y = 0, yaw = 0, z = 0.125 } = {}) {
+    const q = duck.data.qpos;
+    q[0] = x; q[1] = y; q[2] = z;
+    const h = yaw / 2;
+    q[3] = Math.cos(h); q[4] = 0; q[5] = 0; q[6] = Math.sin(h);
+    duck.data.qvel.fill(0);
+    duck.mujoco.mj_forward(duck.model, duck.data);
+    duck.lastAction.fill(0);
+    view.frame();
+    return { ...duck.pose };
+  },
+  async decodeDataUrl(url) {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  },
+  /**
+   * 头摄图的 A/B 差分：正常拍一张，把指定 geom 藏起来再拍一张，
+   * 差异像素就是“这些东西在 VLM 眼里的位置”。用来验证状态传感器说的
+   * “看得见/看不见”和画面上真实有没有，是同一件事。
+   */
+  async headCamDiff(geoms, { width = 320, height = 240 } = {}) {
+    const a = view.captureHeadCam({ width, height });
+    this.setHidden(geoms);
+    const b = view.captureHeadCam({ width, height });
+    this.setHidden([]);
+    const [ia, ib] = await Promise.all([this.decodeDataUrl(a), this.decodeDataUrl(b)]);
+    const ca = document.createElement("canvas"); ca.width = width; ca.height = height;
+    const cb = document.createElement("canvas"); cb.width = width; cb.height = height;
+    ca.getContext("2d").drawImage(ia, 0, 0);
+    cb.getContext("2d").drawImage(ib, 0, 0);
+    const da = ca.getContext("2d").getImageData(0, 0, width, height).data;
+    const db = cb.getContext("2d").getImageData(0, 0, width, height).data;
+    let changed = 0, sx = 0, sy = 0;
+    for (let i = 0; i < da.length; i += 4) {
+      const d = Math.abs(da[i] - db[i]) + Math.abs(da[i + 1] - db[i + 1]) + Math.abs(da[i + 2] - db[i + 2]);
+      if (d > 32) { const p = i / 4; changed++; sx += p % width; sy += Math.floor(p / width); }
+    }
+    return {
+      changed, width, height,
+      frac: changed / (width * height),
+      centroid: changed ? { u: sx / changed / width, v: sy / changed / height } : null,
+      image: a,
+    };
+  },
+  /** 直接拿一张头摄图（和 agent 喂给 VLM 的完全同源）。 */
+  captureHeadCam(opts) { return view.captureHeadCam(opts); },
+  /** 头摄图里“内容整体上下移动了多少像素”——验证低头是否真的改变视线。 */
+  async headCamShift(aUrl, bUrl, { width = 320, height = 240, search = 40 } = {}) {
+    const [ia, ib] = await Promise.all([this.decodeDataUrl(aUrl), this.decodeDataUrl(bUrl)]);
+    const ca = document.createElement("canvas"); ca.width = width; ca.height = height;
+    const cb = document.createElement("canvas"); cb.width = width; cb.height = height;
+    ca.getContext("2d").drawImage(ia, 0, 0); cb.getContext("2d").drawImage(ib, 0, 0);
+    const A = ca.getContext("2d").getImageData(0, 0, width, height).data;
+    const B = cb.getContext("2d").getImageData(0, 0, width, height).data;
+    const row = (buf, y) => { const s = [0, 0, 0]; for (let x = 0; x < width; x++) { const i = (y * width + x) * 4; s[0] += buf[i]; s[1] += buf[i + 1]; s[2] += buf[i + 2]; } return s.map((v) => v / width); };
+    const mid = Math.floor(height / 2);
+    const ref = row(A, mid);
+    let best = 0, bestErr = Infinity;
+    for (let d = -search; d <= search; d++) {
+      const y = mid + d;
+      if (y < 0 || y >= height) continue;
+      const r = row(B, y);
+      const e = Math.abs(r[0] - ref[0]) + Math.abs(r[1] - ref[1]) + Math.abs(r[2] - ref[2]);
+      if (e < bestErr) { bestErr = e; best = d; }
+    }
+    return { shiftPx: best, error: bestErr };
+  },
   grab(name) { const r = grab(name); return stats(r); },
   diff(a, b) { return stats(snaps.get(b), { from: snaps.get(a) }); },
   snapshotInfo(a) { const s = snaps.get(a); return s ? { width: s.w, height: s.h } : null; },
@@ -225,6 +353,10 @@ window.__sim = {
   },
   duckGeoms() { return duck.duckGeoms; },
   ballGeoms() { return duck.ballGeom; },
+  /** 把一个自由物体（ball / obj_cube_red / …）摆到指定位置，用于构造测试场景和演示。 */
+  placeObject(bodyName, pose) { const ok = duck.placeBody(bodyName, pose); view.frame(); return ok; },
+  /** 遮挡判断：目标在 VLM 那张图上到底有没有像素。 */
+  maskVisible(geoms) { return view.maskVisible(geoms); },
   /** 临时隐藏某些 geom（验证“画出来的东西确实来自物理状态”时做 A/B 差分用）。 */
   setHidden(geoms) {
     const set = new Set(geoms);

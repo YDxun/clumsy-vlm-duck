@@ -184,11 +184,10 @@ export class DuckView {
   placeCamera() {
     const T = this.THREE;
     if (this.mode === "duck") {
-      // 头摄：MuJoCo 的自由相机在朝向已知时会用“最接近世界上方”的 up，
-      // 这里照抄同一规则，保证画面不会绕视线轴旋转。
-      const { pos, dir, fovy } = this.duck.headCamPose();
-      const up = this.worldUpFor(dir);
-      this.applyCamera({ pos, dir, up, fovy });
+      // 头摄：基向量直接取 DuckSim.headCamBasis()，与状态传感器用的是同一份数学，
+      // 杜绝“画面里有球、状态却说看不见”这种前后矛盾。
+      const { pos, forward, up, fovy } = this.duck.headCamBasis();
+      this.applyCamera({ pos, dir: forward, up, fovy });
       return;
     }
     if (this.mode === "overhead" || this.mode === "workspace") {
@@ -228,5 +227,101 @@ export class DuckView {
   dispose() {
     for (const { mesh } of this.meshes) { mesh.geometry.dispose(); mesh.material.dispose(); }
     this.renderer.dispose();
+  }
+
+  /**
+   * 抓一张**给 VLM 看的**头摄图。
+   *
+   * 为什么不直接 `canvas.toDataURL()` 了事：网页画布的长宽比跟着窗口走，
+   * 而 Python 端喂给模型的一直是 320×240（4:3）。视口比例一变，同一句话的构图就变了，
+   * 于是「网页上做不到、Python 上能做到」这种问题根本没法排查。
+   * 所以这里用一个 4:3 的视口单独渲一次，再缩到 320×240，构图与 Python 端保持一致。
+   *
+   * @returns {string} data:image/jpeg;base64,...（quality 与 Python 端的 76 对齐）
+   */
+  /**
+   * 用 4:3 视口把「头摄画面」渲染到离屏画布上，返回 ImageData。
+   * captureHeadCam（给 VLM 的图）和 maskVisible（遮挡判断）都用它，
+   * 保证「判断看没看见」和「实际看到的图」是同一台相机、同一个构图。
+   */
+  _headCamImageData(width = 320, height = 240) {
+    const c = this.canvas;
+    const scratch = this._scratch || (this._scratch = document.createElement("canvas"));
+    scratch.width = width; scratch.height = height;
+    const ctx = scratch.getContext("2d");
+    const prevMode = this.mode, prevAspect = this.camera.aspect, prevFov = this.camera.fov;
+    try {
+      this.mode = "duck";
+      const vh = Math.min(c.height, (c.width * 3) / 4);
+      const vw = (vh * 4) / 3;
+      const vx = Math.floor((c.width - vw) / 2), vy = Math.floor((c.height - vh) / 2);
+      this.camera.aspect = 4 / 3;
+      this.camera.updateProjectionMatrix();
+      this.placeCamera();
+      this.renderer.setViewport(vx, vy, vw, vh);
+      this.renderer.setScissor(vx, vy, vw, vh);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.scene, this.camera);
+      // WebGL 视口原点在左下，drawImage 在左上，所以 y 要翻过来
+      ctx.drawImage(c, vx, c.height - vy - vh, vw, vh, 0, 0, width, height);
+      return ctx.getImageData(0, 0, width, height);
+    } finally {
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, c.width, c.height);
+      this.mode = prevMode;
+      this.camera.aspect = prevAspect;
+      this.camera.fov = prevFov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  /** 给 VLM 的那张图（data URL）。 */
+  captureHeadCam({ width = 320, height = 240, quality = 0.76 } = {}) {
+    const img = this._headCamImageData(width, height);
+    const scratch = this._scratch;
+    const out = scratch.toDataURL("image/jpeg", quality);
+    this.frame();   // 把屏幕上的画面恢复成用户选的视角
+    return out;
+  }
+
+  /**
+   * **遮挡判断**：把指定 geom 临时换成不受光照影响的品红色，渲一张头摄图，
+   * 数一数有几个品红像素 —— 有像素就是真看得见，一个都没有就是被挡住或出画。
+   *
+   * 为什么不用 mj_ray：这个 WASM 构建的 mj_ray 拿不到 geomid 输出
+   * （C 是 8 个参数，绑定要 9 个，两个候选槽位写进去都还是 -1），
+   * 没有 geomid 就没法判断"打到的是不是目标自己"。
+   * 用渲染器反而更准：它测的就是 VLM 那张图上有没有目标，连 FOV 和贴图遮挡都算进去了。
+   *
+   * 全同步：渲染 + drawImage + getImageData，一次约几毫秒，只在每次决策前调用。
+   *
+   * @returns {{count:number, frac:number, uv:{u:number,v:number}|null}}
+   */
+  maskVisible(geoms, { width = 320, height = 240 } = {}) {
+    const set = new Set(geoms || []);
+    const targets = this.meshes.filter((m) => set.has(m.index));
+    if (!targets.length) return { count: 0, frac: 0, uv: null, pixels: 0 };
+    const saved = targets.map(({ mesh }) => mesh.material);
+    const tag = new this.THREE.MeshBasicMaterial({ color: 0xff00ff });
+    for (const { mesh } of targets) { mesh.material = tag; mesh.visible = true; }
+    let data;
+    try {
+      data = this._headCamImageData(width, height).data;
+    } finally {
+      targets.forEach(({ mesh }, i) => { mesh.material = saved[i]; });
+      tag.dispose();
+      this.frame();
+    }
+    let count = 0, sx = 0, sy = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 200 && data[i + 1] < 60 && data[i + 2] > 200) {
+        const p = i / 4;
+        count++; sx += p % width; sy += Math.floor(p / width);
+      }
+    }
+    return {
+      count, pixels: width * height, frac: count / (width * height),
+      uv: count ? { u: sx / count / width, v: sy / count / height } : null,
+    };
   }
 }
