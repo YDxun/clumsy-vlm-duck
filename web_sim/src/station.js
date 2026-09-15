@@ -199,8 +199,15 @@ export class Pusher {
     // 之前 0.13±0.035 的最远值刚好落在够不着的区间，这就是方块一动不动的原因。
     contactStandoffM = 0.07,
     contactTolM = 0.02,
-    observeBackoffM = 0.42,
-    burstTicks = 25,            // 连续推 25 拍（0.5 s）就退回来重看一眼
+    // 0.30 m 是"能看见方块"的最小距离：相机俯角 20°、半视场 24°，
+    // 地面上的小方块在 0.30 m 处刚好进画面，0.25 m 就已经贴边了。
+    observeBackoffM = 0.32,
+    // 推 3 s（150 拍）再退回来重看一眼。实测 1.8 s 连续推的横向漂移为 0，
+    // 所以可以把"看一眼"的频率降到 1/150 —— 棘轮的开销（后退+回来）才是最贵的。
+    // 一次推 90 拍 ≈ 鸭子前进 0.25 m。实测 1.8 s 连续推方块跟得很紧，但推久了
+    // 会打滑：方块被墙/摩擦卡住时鸭子继续走就会**越过方块**（实测越过 0.32 m）。
+    // 缩到 0.25 m 一次，越过的风险小得多，代价只是多看几眼。
+    burstTicks = 90,
     driftTolM = 0.10,
     turnRate = 1.15,
   } = {}) {
@@ -221,13 +228,26 @@ export class Pusher {
     this.done = false;
   }
 
-  /** 站位点/接触点都在物体背向目标那一侧。 */
-  plan(objXy, zoneXy) {
+  /**
+   * 站位点/接触点都在物体背向目标那一侧。
+   * 还要算一个**绕行点**：从当前位置直着去站位点会穿过物体（实测鸭子穿过方块跑到
+   * 另一侧、然后朝反方向推）。所以先绕到侧面 0.45 m，再切到正式路线。
+   */
+  plan(objXy, zoneXy, duckPose = null) {
     const u = Math.atan2(zoneXy.y - objXy.y, zoneXy.x - objXy.x);
     const c = Math.cos(u), s = Math.sin(u);
+    const approach = { x: objXy.x - c * this.approachStandoffM, y: objXy.y - s * this.approachStandoffM };
+    // 侧向单位向量（目标方向的左/右）。挑离鸭子更近的那一侧绕，少走冤枉路。
+    const lat = { x: -s, y: c };
+    let sgn = 1;
+    if (duckPose) {
+      const dot = (duckPose.x - objXy.x) * lat.x + (duckPose.y - objXy.y) * lat.y;
+      sgn = dot >= 0 ? 1 : -1;
+    }
     return {
       dir: u, zone: { ...zoneXy }, obj: { ...objXy },
-      approach: { x: objXy.x - c * this.approachStandoffM, y: objXy.y - s * this.approachStandoffM },
+      approach,
+      route: { x: approach.x + lat.x * 0.45 * sgn, y: approach.y + lat.y * 0.45 * sgn },
       contact: { x: objXy.x - c * this.contactStandoffM, y: objXy.y - s * this.contactStandoffM },
       objToZone: Math.hypot(zoneXy.x - objXy.x, zoneXy.y - objXy.y),
     };
@@ -244,7 +264,10 @@ export class Pusher {
       const moved = this.latched
         ? Math.hypot(objXy.x - this.latched.obj.x, objXy.y - this.latched.obj.y) : Infinity;
       if (!this.latched || moved > this.driftTolM || this.needObserve) {
-        this.latched = this.plan(objXy, zone);
+        this.latched = this.plan(objXy, zone, duckPose);
+        // 重算后**一律回到第一个航点**（绕行点→接近点→接触点）。
+        // 曾经试过"观测完直接切接触点"省路程，结果：后退还没走完就来了一次观测，
+        // 鸭子从半路直接朝接触点走，路上**从错误的一侧穿过方块**，把它推到反方向去了。
         this.wpIndex = 0;
         this.needObserve = false;
       }
@@ -261,13 +284,15 @@ export class Pusher {
                      y: p.obj.y - Math.sin(p.dir) * this.observeBackoffM };
       const d = Math.hypot(back.x - duckPose.x, back.y - duckPose.y);
       const turn = this._turnTo(back, duckPose);
-      // 安全阀：后退点不该离自己太远（>1.2 m 说明锁存的物体位置已经过期，
-      // 再走过去就是瞎跑）。直接丢掉计划，等下一次观测重算。
+      // 安全阀：后退点不该离自己太远（>1.2 m 说明锁存的物体位置已经过期）。
+      // 注意**不能丢掉计划** —— 丢了就没有 latch，会掉回"看不见目标"的搜索逻辑，
+      // 鸭子就跑去别的地方转圈了（实测就是这么把推球打断的）。
+      // 正确做法是保留计划、重新走一遍接近航点。
       if (d > 1.2) {
-        this.latched = null;
+        this.wpIndex = 0;
         this.needObserve = false;
-        this.phase = "no-plan";
-        return { cmd: [0, 0, 0], phase: this.phase, note: "锁存位置过期，等重新观测", done: false };
+        this.phase = "replan";
+        return { cmd: [0, 0, 0], phase: this.phase, note: "后退点太远，重走接近航点", done: false };
       }
       this.phase = "observe";
       if (d < 0.09 && turn === 0) {
@@ -279,6 +304,7 @@ export class Pusher {
     }
 
     const waypoints = [
+      { name: "route", xy: p.route, tol: 0.10, drive: 3, coast: 1 },
       { name: "approach", xy: p.approach, tol: 0.08, drive: 3, coast: 1 },
       { name: "contact", xy: p.contact, tol: this.contactTolM, drive: 1, coast: 1 },
     ];

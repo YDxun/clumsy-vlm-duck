@@ -488,7 +488,7 @@ export class DuckView {
     const img = this._headCamImageData(width, height);
     const scratch = this._scratch;
     const out = scratch.toDataURL("image/jpeg", quality);
-    this.frame();   // 把屏幕上的画面恢复成用户选的视角
+    if (this.restoreAfterCapture !== false) this.frame();   // 把屏幕恢复成用户选的视角
     return out;
   }
 
@@ -518,7 +518,9 @@ export class DuckView {
     } finally {
       targets.forEach(({ mesh }, i) => { mesh.material = saved[i]; });
       tag.dispose();
-      this.frame();
+      // 批量跑（测试/无人观看）时可以关掉这一帧：它只是为了把屏幕恢复成用户视角，
+      // 在无头环境里却要多付一整帧软件光栅化的钱。
+      if (this.restoreAfterCapture !== false) this.frame();
     }
     let count = 0, sx = 0, sy = 0;
     for (let i = 0; i < data.length; i += 4) {
