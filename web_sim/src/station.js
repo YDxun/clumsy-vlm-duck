@@ -194,15 +194,18 @@ export class StationKicker {
 export class Pusher {
   constructor({
     approachStandoffM = 0.42,
-    contactStandoffM = 0.13,
-    contactTolM = 0.035,
+    // 接触距离是实测出来的（见 README 的接触表）：0.20 m 完全够不着，0.16 m 只推 2 cm，
+    // 0.13 m 起才稳定推动，越近推得越远。取 0.07 m 留出余量，容差收紧到 2 cm ——
+    // 之前 0.13±0.035 的最远值刚好落在够不着的区间，这就是方块一动不动的原因。
+    contactStandoffM = 0.07,
+    contactTolM = 0.02,
     observeBackoffM = 0.42,
-    pushesPerObserve = 3,
+    burstTicks = 25,            // 连续推 25 拍（0.5 s）就退回来重看一眼
     driftTolM = 0.10,
     turnRate = 1.15,
   } = {}) {
     Object.assign(this, { approachStandoffM, contactStandoffM, contactTolM,
-                          observeBackoffM, pushesPerObserve, driftTolM, turnRate });
+                          observeBackoffM, burstTicks, driftTolM, turnRate });
     this.reset();
   }
 
@@ -213,7 +216,7 @@ export class Pusher {
     this.latched = null;
     this.wpIndex = 0;
     this.pulse = 0;
-    this.pushes = 0;
+    this.pushTicks = 0;
     this.needObserve = false;
     this.done = false;
   }
@@ -305,13 +308,10 @@ export class Pusher {
       return { cmd: [0, 0, Math.sign(headErr) * this.turnRate], phase: this.phase, note: this.note, done: false };
     }
     this.phase = "push";
-    this.pushes += 1;
-    if (this.pushes >= this.pushesPerObserve) { this.pushes = 0; this.needObserve = true; }
-    // 轻推：走一拍停两拍。球是圆的，连续走会把球推飞（实测一次推出 1.9 m 直接滚过界）。
-    this.pulse += 1;
-    const armed = (this.pulse % 3) === 0;
-    this.note = `推（第 ${this.pushes || this.pushesPerObserve}/${this.pushesPerObserve} 轮，${armed ? "推进" : "等球停"}）`;
-    return { cmd: [armed ? DRIVE_SPEED : 0, 0, 0], phase: this.phase, note: this.note, done: false };
+    this.pushTicks += 1;
+    if (this.pushTicks >= this.burstTicks) { this.pushTicks = 0; this.needObserve = true; }
+    this.note = `推（${this.pushTicks || this.burstTicks}/${this.burstTicks} 拍）`;
+    return { cmd: [DRIVE_SPEED, 0, 0], phase: this.phase, note: this.note, done: false };
   }
 
   _turnTo(target, duckPose) {
