@@ -109,6 +109,10 @@ export class DuckAgent {
     this.manipMode = this.manipulationMode === "auto"
       ? (wantsKick && !wantsPush ? "kick" : "push")
       : this.manipulationMode;
+    // 滚动物体要短促得多：实测球被"推 0.25 m"之后自己滚了 1.9 m（放大 7.6 倍），
+    // 所以球用 25 拍的短脉冲，方块这类不滚的用 90 拍。
+    const objMeta = (this.scene?.metadata?.objects || []).find((o) => o.body === this.task.target);
+    this.manipObjectKind = objMeta?.kind || "unknown";
     return this.task;
   }
 
@@ -150,6 +154,8 @@ export class DuckAgent {
 
   /** 推东西：见物体才喂观测，其余靠锁存的计划推进（棘轮式：推几轮退回来重看一眼）。 */
   pusherTick() {
+    // 滚动物体（球）用短脉冲，不滚的（方块/杯子）用长脉冲
+    this.pusher.burstTicks = this.manipObjectKind === "sphere" ? 25 : 90;
     if (this.duck.upright() < 0.55) {
       this.pusher.note = "鸭子倒了，先停住";
       return { cmd: [0, 0, 0], phase: "fallen", note: this.pusher.note, done: false };
