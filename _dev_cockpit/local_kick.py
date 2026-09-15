@@ -12,6 +12,9 @@ TRICK_DUR_S = {'roulade': 1.4}
 # is trained and exported. Availability filtering handles that automatically.
 POSE_POLICIES = {'sit': 'alpha_sitstand', 'standup': 'alpha_standup'}
 POSE_DUR_S = {'sit': 1.8, 'standup': 2.5}
+# Skills that are allowed to fire while the duck is already down. STAND_UP is the
+# whole point of being down; everything else (kicks, sit, tricks) is not.
+RECOVERY_REQUESTS = ('standup',)
 POLICY_FOR = {**KICK_POLICIES, **TRICK_POLICIES, **POSE_POLICIES}
 
 
@@ -35,8 +38,8 @@ class LocalKick:
                 reason = 'Action policy is unavailable; check the server log.'
             elif self.name:
                 reason = 'Another action is in progress; wait for recovery.'
-            elif fallen:
-                reason = 'Duck is down; reset or stand up first.'
+            elif fallen and name not in RECOVERY_REQUESTS:
+                reason = 'Duck is down; stand up first.'
         else:
             reason = 'This action requires an X5 connection in this build.'
         if reason:
@@ -60,13 +63,20 @@ class LocalKick:
     def select(self, dt, command, speed, gyro, upright):
         if not self.name:
             return ('alpha_walking' if np.linalg.norm(command) >= .05 else 'alpha_stand'), command
-        if not np.isfinite([speed, gyro, upright]).all() or upright < .5:
+        # A recovery skill is supposed to start from a fallen pose, so the balance
+        # guard must not fire for it - and it must skip the 'settle before acting'
+        # gate, which can never be satisfied while lying on the ground.
+        down_ok = self.name in RECOVERY_REQUESTS
+        if not np.isfinite([speed, gyro, upright]).all() or (upright < .5 and not down_ok):
             self.finish('failed', 'Action aborted: duck lost balance.')
             return 'alpha_stand', np.zeros(3, dtype=np.float32)
         stable = speed < .08 and gyro < .6 and upright > .94
         self.stable_time = self.stable_time + dt if stable else 0.0
         if self.phase == 'preparing':
-            if self.elapsed >= .3 and self.stable_time >= .12:
+            if down_ok:
+                self.phase, self.elapsed = 'kicking', 0.0
+                self.emit('running', 'Recovery policy running.')
+            elif self.elapsed >= .3 and self.stable_time >= .12:
                 self.phase, self.elapsed = 'kicking', 0.0
                 self.emit('running', 'Action policy running.')
             elif self.elapsed >= 2.0:

@@ -105,6 +105,10 @@ class SubgoalPlugin(DuckPlugin):
     def before_decision(self, observation: VlmObservation, context: dict[str, Any]) -> VlmObservation:
         if not self.enabled:
             return observation
+        if observation.state.fallen:
+            observation.subgoal = ("The duck is on the ground. Output STAND_UP to get back "
+                                   "onto its feet, then resume the task.")
+            return observation
         task = (observation.task or "").lower()
         state = observation.state
         task_id = observation.task_id or ""

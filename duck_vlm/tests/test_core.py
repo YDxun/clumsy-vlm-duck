@@ -598,6 +598,52 @@ class NegationTest(unittest.TestCase):
         self.assertEqual(body, "ball", "must not start chasing what we were told to avoid")
 
 
+class RecoveryWhileFallenTest(unittest.TestCase):
+    def _loop(self, tmp, holder):
+        def state_provider(target, t):
+            return DuckState(sim_time=t, x=0.0, y=0.0, z=0.12, heading_rad=0.0,
+                             linear_speed_mps=0.0, angular_speed_rps=0.0,
+                             upright=0.2 if holder["fallen"] else 1.0,
+                             fallen=holder["fallen"], target_name=target)
+        return DuckVlmLoop(vlm=FakeVlm(), state_provider=state_provider,
+                           image_provider=lambda: b"jpeg", kick=FakeKick(),
+                           policies={"standup": object()},
+                           loop_config=LoopConfig(run_dir=tmp, max_steps=20),
+                           vlm_config=FakeVlm().config)
+
+    def test_stand_up_is_a_recovery_token(self):
+        self.assertIn("STAND_UP", DuckVlmLoop.RECOVERY_TOKENS)
+
+    @staticmethod
+    def _start_stand_up(loop):
+        """Begin a STAND_UP episode through the normal path so the skill is live."""
+        return loop._begin_action("STAND_UP", loop.state_provider("ball", 0.0), 0.0)
+
+    def test_fallen_branch_does_not_cancel_a_running_recovery_skill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            holder = {"fallen": False}
+            loop = self._loop(tmp, holder)
+            loop.start("get up and stand still", "ball", auto_run=True, record=False)
+            # start a real STAND_UP episode, then knock the duck over mid-recovery
+            self._start_stand_up(loop)
+            self.assertEqual(loop.interpreter.token, "STAND_UP")
+            holder["fallen"] = True
+            loop.tick(0.02, 0.02)
+            self.assertEqual(loop.interpreter.token, "STAND_UP",
+                             "the fallen branch must not cancel the recovery skill")
+            loop.stop()
+
+    def test_model_is_asked_while_fallen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            holder = {"fallen": True}
+            loop = self._loop(tmp, holder)
+            loop.start("get up and stand still", "ball", auto_run=True, record=False)
+            loop.tick(0.02, 0.02)
+            self.assertIsNotNone(loop._pending,
+                                 "a fallen duck still needs to be asked for an action")
+            loop.stop()
+
+
 class SkillTokenTest(unittest.TestCase):
     def test_sit_and_stand_up_are_registered(self):
         self.assertIn("SIT", TOKENS)

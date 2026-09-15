@@ -41,6 +41,10 @@ class LoopConfig:
     max_steps: int = 40
     action_settle_s: float = 0.20
     fall_reset_delay_s: float = 1.2
+    # With a real STAND_UP policy available, the simulator reset is only a
+    # safety net: give the model this long to right the duck for real before
+    # teleporting it upright.
+    recovery_grace_s: float = 6.0
     decision_timeout_s: float = 35.0
     stale_image_s: float = 0.45
     max_retries: int = 1
@@ -56,6 +60,7 @@ class LoopConfig:
             "max_steps",
             "action_settle_s",
             "fall_reset_delay_s",
+        "recovery_grace_s",
             "decision_timeout_s",
             "stale_image_s",
             "max_retries",
