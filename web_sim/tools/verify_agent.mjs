@@ -247,7 +247,8 @@ async function main() {
         imgUrl.startsWith("data:image/jpeg;base64,") && imgBytes.length > 1000 &&
         imgBytes[0] === 0xff && imgBytes[1] === 0xd8 && imgBytes[2] === 0xff,
         `${imgBytes.length} 字节 ≈ ${(imgBytes.length / 1024).toFixed(1)} KB`);
-  check("提示词带 8 个 token 的菜单", textPart.includes("AVAILABLE TOKENS") && textPart.includes("LOOK_DOWN") &&
+  // 词表现在是 8 个基础动作 + 通过验证的技能（翻滚/跳舞）；未验证的踢球类不该出现
+  check("提示词带动作菜单，且不含未验证的技能", textPart.includes("AVAILABLE TOKENS") && textPart.includes("LOOK_DOWN") &&
         !textPart.includes("KICK_L"));
   check("提示词是鸭子真实状态（不是模板）", /body=\(-?\d/.test(textPart) && /TASK: go to the ball/.test(textPart));
   // records 是「新在前」，所以第 0 条其实是最后一次决策
