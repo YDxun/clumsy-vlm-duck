@@ -258,6 +258,12 @@ export class DuckSim {
     return -g[2];
   }
 
+  /** 角速度大小（rad/s）：陀螺仪三轴的模。站定判定和状态面板都要用。 */
+  angularSpeed() {
+    const g = this.gyroAdr;
+    return Math.hypot(this.data.sensordata[g], this.data.sensordata[g + 1], this.data.sensordata[g + 2]);
+  }
+
   get pose() {
     const t = this.bodies.trunk, p = this.data.xpos;
     const m = this.data.xmat;

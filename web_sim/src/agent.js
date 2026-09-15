@@ -127,11 +127,6 @@ export class DuckAgent {
    * 球的位置**只在真的看见时**才喂进去；看不见就用锁存的计划继续走（航位推算）。
    */
   stationTick() {
-    // 摔倒了就先别走：躺着继续下方位移指令只会在地上蹭
-    if (this.duck.upright() < 0.55) {
-      this.station.note = "鸭子倒了，先停住（起身策略还没接入）";
-      return { cmd: [0, 0, 0], kick: false, phase: "fallen", note: this.station.note };
-    }
     const needObs = !this.station.latched ||
                      (this.duck.steps - (this._stationObsStep ?? -999)) > 60;
     let ballXy = null;
@@ -140,16 +135,43 @@ export class DuckAgent {
       const s = this.sensor.snapshot(this.task.target, this.duck.steps * 0.02);
       if (s.targetVisible && s.targetWorldXyz) {
         ballXy = { x: s.targetWorldXyz[0], y: s.targetWorldXyz[1] };
+        // 球已经进区 → 任务完成。**这一步必须在摔倒判断之前**：
+        // 鸭子踢完往前扑倒是常事，不能因为摔了就假装任务没成。
+        if (StationKicker.ballInZone(ballXy, this.stationZone)) {
+          this.station.note = `球已进区 (${ballXy.x.toFixed(2)},${ballXy.y.toFixed(2)})`;
+          return { cmd: [0, 0, 0], kick: false, phase: "done", note: this.station.note, done: true };
+        }
         if (this.station.lastKick) {          // 刚踢过：用这一脚的真实落点标定偏角
-          const bias = this.station.calibrate(ballXy);
-          if (bias !== null) {
-            this.lastNote = `标定踢球偏角：${(bias * 180 / Math.PI).toFixed(0)}°（原 ${(-33).toFixed(0)}°）`;
-            this._stationBias = bias;
+          const k = this.station.lastKick.ball;
+          const moved = Math.hypot(ballXy.x - k.x, ballXy.y - k.y);
+          if (moved < 0.05) {
+            // 这一脚没碰到球 → 换一个站位再来，直到踢到为止
+            this.stationDither = (this.stationDither || 0) + 1;
+            this.station.ditherIndex = this.stationDither;
+            this.station.lastKick = null;
+            this.lastNote = `这一脚没碰到球（位移 ${moved.toFixed(3)} m），换站位重试（第 ${this.stationDither} 次）`;
+            if (this.stationDither > 6) { this.lastNote += " —— 抖动表用完了，仍然踢不到"; }
+          } else {
+            const bias = this.station.calibrate(ballXy);
+            this.stationDither = 0;
+            this.station.ditherIndex = 0;
+            if (bias !== null) {
+              this.lastNote = `踢到了（球走了 ${moved.toFixed(2)} m），标定出手偏角 ${(bias * 180 / Math.PI).toFixed(0)}°`;
+            }
           }
         }
       }
     }
-    return this.station.tick({ duckPose: this.duck.pose, ballXy, zone: this.stationZone });
+    // 摔倒了就先别走：躺着继续下方位移指令只会在地上蹭
+    if (this.duck.upright() < 0.55) {
+      this.station.note = "鸭子倒了，先停住（起身策略还没接入）";
+      return { cmd: [0, 0, 0], kick: false, phase: "fallen", note: this.station.note };
+    }
+    const q = this.duck.data.qvel;
+    return this.station.tick({
+      duckPose: this.duck.pose, ballXy, zone: this.stationZone,
+      motion: { speed: Math.hypot(q[0], q[1]), gyro: this.duck.angularSpeed() },
+    });
   }
 
   /** 推东西：见物体才喂观测，其余靠锁存的计划推进（棘轮式：推几轮退回来重看一眼）。 */
@@ -330,7 +352,13 @@ export class DuckAgent {
       // 踢完一脚后重开站位：球被踢到哪了要用新观测重算，没进区域就再来一脚
       if (this.history[0] === "KICK_R" || this.history[0] === "KICK_L") {
         const attempts = this.stationKicks || 0;
-        this.station.reset();
+        // 注意别调 station.reset()：那会把 lastKick 清掉，而"这一脚有没有碰到球"
+        // 正要靠 lastKick 和下一次观测去判断（踢空就换站位重试）。
+        this.station.kicked = false;
+        this.station.latched = null;
+        this.station.wpIndex = 0;
+        this.station.needObserve = false;
+        this.station.settleLeft = this.station.settleTicks;
         this._stationObsStep = -999;
         this.lastNote = `第 ${attempts} 脚踢完，重新站位`;
       }

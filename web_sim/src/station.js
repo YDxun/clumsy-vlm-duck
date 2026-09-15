@@ -50,8 +50,13 @@ export function planStation(ballXy, zoneXy, foot = "right", biasRad = null) {
  */
 export class StationKicker {
   constructor({ standTolM = 0.025, headTolRad = 0.08, turnRate = 1.15, foot = "right",
-                settleTicks = 20 } = {}) {
-    Object.assign(this, { standTolM, headTolRad, turnRate, foot, settleTicks });
+                settleTicks = 12, settleSpeed = 0.06, settleGyro = 0.45 } = {}) {
+    Object.assign(this, { standTolM, headTolRad, turnRate, foot, settleTicks,
+                          settleSpeed, settleGyro });
+    // 站位抖动表：踢空一次就换个站位再试，保证能碰到球。
+    // 单位 m，[沿朝向前后, 横向]，正负轮流 —— 这比"反复调同一个点"有效得多。
+    this.ditherTable = [[0, 0], [0.02, 0], [-0.02, 0], [0, 0.02], [0, -0.02], [0.03, 0.02], [-0.03, -0.02]];
+    this.ditherIndex = 0;
     this.reset();
   }
 
@@ -64,6 +69,7 @@ export class StationKicker {
     this.blindSteps = 0;
     this.wpIndex = 0;      // 航点只能往前走，不能回头 —— 否则会在 pre/stand 之间反复横跳
     this.settleLeft = 0;
+    this.settled = false;
     // 踢球偏角。标称 -33° 是静止起脚的实测值，但走完一整套动作后偏角会变，
     // 所以每踢一脚就用球的真实飞行方向标定一次（见 calibrate）。
     this.biasRad = this.foot === "right" ? KICK_BIAS_RIGHT_RAD : -KICK_BIAS_RIGHT_RAD;
@@ -99,7 +105,14 @@ export class StationKicker {
    * 如果非要"看见才算"，最需要精度的最后 20 cm 反而在瞎走 —— 这大概就是之前踢不准的原因。
    * 锁存是合法的：计划是用真实观测到的球位算的，最后那段靠航位推算，没读任何隐藏真值。
    */
-  tick({ duckPose, ballXy, zone }) {
+  /** 当前抖动偏置（沿朝向前后 + 横向）。 */
+  dither() {
+    const [f, l] = this.ditherTable[this.ditherIndex % this.ditherTable.length];
+    const h = this.latched ? this.latched.heading : 0;
+    return { x: f * Math.cos(h) - l * Math.sin(h), y: f * Math.sin(h) + l * Math.cos(h), f, l };
+  }
+
+  tick({ duckPose, ballXy, zone, motion = null }) {
     // 球已经在区域里了：直接收工（这也是多脚连踢的终止条件）
     if (ballXy && StationKicker.ballInZone(ballXy, zone)) {
       this.phase = "done";
@@ -119,6 +132,8 @@ export class StationKicker {
     }
     if (!ballXy) this.blindSteps += 1;
     const p = this.plan = this.latched;
+    const j = this.dither();
+    const stand = { x: p.stand.x + j.x, y: p.stand.y + j.y };
 
     if (this.kicked) {
       this.phase = "recover";
@@ -128,7 +143,7 @@ export class StationKicker {
     // 1) 先绕到预备点（从背向目标那一侧靠近），2) 再顺着踢球朝向进站位点
     const waypoints = [
       { name: "pre", xy: p.pre, tol: 0.07, drive: 3, coast: 1 },
-      { name: "stand", xy: p.stand, tol: this.standTolM, drive: 1, coast: 1 },
+      { name: "stand", xy: stand, tol: this.standTolM, drive: 1, coast: 1 },
     ];
     if (this.wpIndex < waypoints.length) {
       const wp = waypoints[this.wpIndex];
@@ -164,11 +179,14 @@ export class StationKicker {
       return { cmd: [0, 0, Math.sign(headErr) * this.turnRate], kick: false, phase: this.phase, note: this.note };
     }
 
-    // 4) 起脚
-    if (this.settleLeft > 0) {       // 先站稳：训练时也是从稳定的站立姿态起步的
+    // 4) 起脚：必须真的静止（训练时也是从稳定站立起步的）。
+    //    只看"站了几拍"不够 —— 实测带着速度起脚会踢空或踢歪。
+    const speed = motion?.speed ?? 0, gyro = motion?.gyro ?? 0;
+    const quiet = speed < this.settleSpeed && gyro < this.settleGyro;
+    if (this.settleLeft > 0 || !quiet) {
       this.settleLeft -= 1;
       this.phase = "settle";
-      this.note = `站定中（还剩 ${this.settleLeft} 拍）`;
+      this.note = `站定中（速度 ${speed.toFixed(2)} m/s、角速度 ${gyro.toFixed(2)} rad/s）`;
       return { cmd: [0, 0, 0], kick: false, phase: this.phase, note: this.note };
     }
     this.phase = "kick";
