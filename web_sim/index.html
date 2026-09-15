@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+  步骤①：浏览器端渲染器验证页。
+  现在这一版只做“看得见”——场景加载、策略闭环、三种相机。决策层（步骤②）还没接。
+
+  关于 importmap：本地开发直接指到 node_modules（`npm install` 之后即可离线跑）。
+  将来发布成静态站点时，把下面三个 URL 换成 jsDelivr 的固定版本即可，代码不用改
+  （版本号必须与 package.json 对齐，否则会出现“本地能跑、线上不能跑”）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">   <!-- 避免浏览器去要 /favicon.ico 报 404 -->
+<title>DuckVLM 浏览器仿真 · 步骤①渲染</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./node_modules/three/build/three.module.js",
+    "three/": "./node_modules/three/",
+    "@mujoco/mujoco": "./node_modules/@mujoco/mujoco/mujoco.js",
+    "onnxruntime-web": "./node_modules/onnxruntime-web/dist/ort.min.mjs"
+  }
+}
+</script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b1118; color: #e6edf3;
+         font: 14px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  #app { display: grid; grid-template-columns: minmax(0, 1fr) 320px; height: 100vh; }
+  #stage { position: relative; min-width: 0; }
+  #canvas { display: block; width: 100%; height: 100%; }
+  #hud { position: absolute; left: 12px; top: 12px; padding: 8px 12px;
+         background: rgba(4, 10, 16, .72); border: 1px solid #1e2c3a; border-radius: 8px;
+         font-variant-numeric: tabular-nums; pointer-events: none; }
+  #hud b { color: #7fd1ff; font-weight: 600; }
+  aside { border-left: 1px solid #1e2c3a; padding: 16px; overflow: auto; background: #0d141c; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  .sub { color: #8b9bad; font-size: 12px; margin-bottom: 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  button { background: #16222e; color: #dbe6f0; border: 1px solid #26384a; border-radius: 6px;
+           padding: 6px 10px; cursor: pointer; font: inherit; }
+  button:hover { border-color: #3d5a75; }
+  button.on { background: #17405c; border-color: #2f7fb3; color: #fff; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 16px; }
+  dt { color: #8b9bad; }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  #log { font: 12px/1.5 Consolas, monospace; color: #9fb3c6; white-space: pre-wrap;
+         max-height: 30vh; overflow: auto; border-top: 1px solid #1e2c3a; padding-top: 8px; }
+  #boot { position: absolute; inset: 0; display: grid; place-items: center;
+          background: #0b1118ee; text-align: center; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="hud">MuJoCo WASM · <b id="hud-fps">—</b> fps · <b id="hud-steps">0</b> ctrl steps</div>
+    <div id="boot"><div>
+      <div style="font-size:16px">正在加载 MuJoCo WASM 与场景…</div>
+      <div class="sub" id="boot-msg">首次加载约 30 MB（含 20 MB 网格），会走一次网络/磁盘缓存</div>
+    </div></div>
+  </div>
+  <aside>
+    <h1>DuckVLM 浏览器仿真</h1>
+    <div class="sub">步骤① 渲染器 —— 决策层尚未接入</div>
+
+    <div class="row">
+      <button data-mode="workspace">全景</button>
+      <button data-mode="follow" class="on">跟随</button>
+      <button data-mode="overhead">上帝视角</button>
+      <button data-mode="duck">鸭子第一人称</button>
+    </div>
+    <div class="row">
+      <button data-cmd="stand">站立</button>
+      <button data-cmd="fwd">前进 0.3</button>
+      <button data-cmd="turn">原地转 0.8</button>
+      <button id="pause">暂停</button>
+    </div>
+
+    <dl>
+      <dt>场景</dt><dd id="s-scene">—</dd>
+      <dt>策略</dt><dd id="s-policy">—</dd>
+      <dt>仿真时间</dt><dd id="s-time">0.00 s</dd>
+      <dt>位置 x,y</dt><dd id="s-pos">—</dd>
+      <dt>朝向</dt><dd id="s-head">—</dd>
+      <dt>直立度</dt><dd id="s-up">—</dd>
+      <dt>球位置</dt><dd id="s-ball">—</dd>
+    </dl>
+    <div id="log">就绪后这里显示运行日志。</div>
+  </aside>
+</div>
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>

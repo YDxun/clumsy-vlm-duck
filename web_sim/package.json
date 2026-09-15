@@ -5,11 +5,16 @@
   "version": "0.1.0",
   "description": "DuckVLM browser-side zero-shot simulator (adapted from the quackd architecture, our own implementation)",
   "scripts": {
-    "verify": "node tools/verify_wasm.mjs",
-    "serve": "node tools/serve.mjs"
+    "serve": "node tools/serve.mjs",
+    "verify:wasm": "node tools/verify_wasm.mjs",
+    "verify:policy": "node tools/verify_policy.mjs",
+    "verify:render": "node tools/verify_render.mjs",
+    "verify": "npm run verify:wasm && npm run verify:render"
   },
   "dependencies": {
     "@mujoco/mujoco": "^3.12.0",
-    "onnxruntime-web": "^1.29.0"
+    "onnxruntime-web": "^1.29.0",
+    "playwright-core": "^1.63.0",
+    "three": "^0.180.0"
   }
 }
