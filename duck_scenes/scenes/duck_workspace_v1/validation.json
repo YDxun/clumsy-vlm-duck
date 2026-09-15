@@ -1,6 +1,6 @@
 {
   "scene": "duck_workspace_v1",
-  "scene_xml": "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\scene.xml",
+  "scene_xml": "/root/microduck_sim/duck_scenes/scenes/duck_workspace_v1/scene.xml",
   "model": {
     "nq": 56,
     "nv": 50,
@@ -226,10 +226,10 @@
         "steps": 2000,
         "simulated_time_s": 10.0,
         "nan_detected": 0,
-        "final_upright": 0.13518707360045412,
-        "max_qvel": 6.607575764536509,
-        "max_qacc": 795.1027828565161,
-        "min_contact_dist": -0.00526601720770839,
+        "final_upright": 0.13518707360045212,
+        "max_qvel": 6.6075757645365085,
+        "max_qacc": 795.1027828565111,
+        "min_contact_dist": -0.005266017207708036,
         "max_contacts": 26,
         "free_body_motion_m": {
           "ball": 5.7133404510543995e-05,
@@ -250,9 +250,9 @@
         "simulated_time_s": 10.0,
         "nan_detected": 0,
         "min_upright": 0.999965706158414,
-        "max_root_move_m": 0.00028325233740516815,
-        "max_qvel": 0.007701107550898997,
-        "max_qacc": 1.7319965011579406
+        "max_root_move_m": 0.00028325233740565474,
+        "max_qvel": 0.007701107550885478,
+        "max_qacc": 1.7319965011593783
       }
     },
     {
@@ -337,10 +337,10 @@
       "name": "CAM_OVERHEAD",
       "passed": true,
       "skipped": false,
-      "detail": "rendered F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\overhead.png",
+      "detail": "rendered /root/microduck_sim/duck_scenes/scenes/duck_workspace_v1/previews/overhead.png",
       "metrics": {
-        "mean": 66.99806966145833,
-        "std": 68.18848510120354,
+        "mean": 66.99800347222222,
+        "std": 68.18842088317967,
         "targets_uv": {
           "trunk_base": [
             320.0,
@@ -357,10 +357,10 @@
       "name": "CAM_WORKSPACE",
       "passed": true,
       "skipped": false,
-      "detail": "rendered F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\workspace.png",
+      "detail": "rendered /root/microduck_sim/duck_scenes/scenes/duck_workspace_v1/previews/workspace.png",
       "metrics": {
-        "mean": 22.501293402777776,
-        "std": 40.26022410554241,
+        "mean": 22.50133572048611,
+        "std": 40.260267765406624,
         "targets_uv": {
           "trunk_base": [
             319.99999999999994,
@@ -368,7 +368,7 @@
           ],
           "ball": [
             370.57971109908476,
-            214.33900151186182
+            214.3390015118618
           ]
         }
       }
@@ -413,9 +413,9 @@
           "turn": 62.34
         },
         "outputs": [
-          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\duckvlm_front.png",
-          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\duckvlm_left.png",
-          "F:\\NUS_project\\Duck_ydx\\.tmp_scenes_validated_20260914\\scenes\\duck_workspace_v1\\previews\\duckvlm_right.png"
+          "/root/microduck_sim/duck_scenes/scenes/duck_workspace_v1/previews/duckvlm_front.png",
+          "/root/microduck_sim/duck_scenes/scenes/duck_workspace_v1/previews/duckvlm_left.png",
+          "/root/microduck_sim/duck_scenes/scenes/duck_workspace_v1/previews/duckvlm_right.png"
         ]
       }
     },
@@ -428,53 +428,53 @@
         "outcomes": {
           "forward": {
             "disp_xy": [
-              0.2115073906932562,
-              -0.0008977569734248649
+              0.21150739069322963,
+              -0.0008977569734954705
             ],
-            "distance": 0.21150929597881282,
-            "dyaw_deg": -8.197999648623465,
-            "upright": 0.9982924567102984,
-            "speed": 0.17669162616199005
+            "distance": 0.21150929597878657,
+            "dyaw_deg": -8.197999648631367,
+            "upright": 0.9982924567103236,
+            "speed": 0.17669162616229822
           },
           "backward": {
             "disp_xy": [
-              -0.6053824911296467,
-              0.00018245770922374068
+              -0.6053824911401586,
+              0.0001824576756855847
             ],
-            "distance": 0.6053825186253337,
-            "dyaw_deg": -9.936487580316111,
-            "upright": 0.9995961016376249,
-            "speed": 0.3047423206559098
+            "distance": 0.6053825186358355,
+            "dyaw_deg": -9.936487620915244,
+            "upright": 0.9995961016471564,
+            "speed": 0.30474231923676043
           },
           "turn_left": {
             "disp_xy": [
-              0.0019968848283365183,
-              0.014992512956321296
+              0.001996884828333546,
+              0.014992512956307939
             ],
-            "distance": 0.015124913016711946,
-            "dyaw_deg": 26.784386380145236,
-            "upright": 0.9981856258782741,
-            "speed": 0.03274795370450651
+            "distance": 0.015124913016698313,
+            "dyaw_deg": 26.78438638014768,
+            "upright": 0.998185625878278,
+            "speed": 0.03274795370453
           },
           "turn_right": {
             "disp_xy": [
-              0.0014757399480489677,
-              0.0019745035920281776
+              0.0014757399480484525,
+              0.0019745035920281577
             ],
-            "distance": 0.0024650502691019806,
+            "distance": 0.0024650502691016558,
             "dyaw_deg": -14.661184888413487,
-            "upright": 0.9998582959153448,
-            "speed": 0.0011654964888220384
+            "upright": 0.9998582959153447,
+            "speed": 0.0011654964888224168
           },
           "stop": {
             "disp_xy": [
-              9.180826655758988e-05,
-              -4.300398273136942e-05
+              9.18082665576172e-05,
+              -4.300398273137568e-05
             ],
-            "distance": 0.00010138096635497906,
+            "distance": 0.00010138096635500645,
             "dyaw_deg": 0.08805990023381582,
             "upright": 0.9999686827249497,
-            "speed": 0.0010403624689212937
+            "speed": 0.0010403624689214923
           }
         }
       }
@@ -486,51 +486,51 @@
       "detail": "walking approach plus existing ONNX kick policy",
       "metrics": {
         "natural_workspace_approach": true,
-        "approach_steps": 402,
+        "approach_steps": 404,
         "robot_before": [
-          0.0030813354480998716,
-          -7.343745774899498e-05,
-          0.11637236396590057
+          0.0030813354480998733,
+          -7.34374577489859e-05,
+          0.11637236396590059
         ],
         "robot_after": [
-          0.8715155229861404,
-          0.017845785487955318,
-          0.11628575101926208
+          0.8546869335739217,
+          0.01058402530516106,
+          0.11628219628992105
         ],
         "ball_before": [
           0.9,
           0.0,
-          0.034942866596026544
+          0.034942866595990454
         ],
         "ball_after": [
-          1.1011486234189916,
-          -0.36696278511716834,
-          0.034942866596600224
+          0.910950057224408,
+          -0.11871917840104612,
+          0.03494286659613719
         ],
-        "ball_displacement_m": 0.4184763486319201,
+        "ball_displacement_m": 0.11922309790236633,
         "attempts": [
           {
             "attempt": 1,
             "kick": "ball_kick_left",
-            "ball_displacement_m": 7.527312106958561e-14,
+            "ball_displacement_m": 1.1439460489981457e-13,
             "ball_xyz": [
               0.9,
               0.0,
-              0.03494286659610182
+              0.03494286659610485
             ]
           },
           {
             "attempt": 2,
             "kick": "ball_kick_left",
-            "ball_displacement_m": 0.4184763486319201,
+            "ball_displacement_m": 0.11922309790236633,
             "ball_xyz": [
-              1.1011486234189916,
-              -0.36696278511716834,
-              0.034942866596600224
+              0.910950057224408,
+              -0.11871917840104612,
+              0.03494286659613719
             ]
           }
         ],
-        "max_qvel": 12.499977896351492
+        "max_qvel": 2.6243285438658934
       }
     },
     {
@@ -541,23 +541,23 @@
       "metrics": {
         "approach_steps": 223,
         "start_xyz": [
-          0.0030813354480998716,
-          -7.343745774899498e-05,
-          0.11637236396590057
+          0.0030813354480998733,
+          -7.34374577489859e-05,
+          0.11637236396590059
         ],
         "end_xyz": [
-          0.5272602301222372,
-          0.016451216762500127,
-          0.11625939426186419
+          0.5272984127547963,
+          0.016464423737472037,
+          0.11625953873948025
         ],
         "ball_xyz": [
           0.9,
           0.0,
           0.034942866595953075
         ],
-        "final_distance_m": 0.3731026381325846,
-        "final_speed_mps": 0.0007861965794024089,
-        "final_upright": 0.9999727122243695
+        "final_distance_m": 0.37306507526717275,
+        "final_speed_mps": 0.0005528595733259221,
+        "final_upright": 0.999972510361529
       }
     },
     {
@@ -587,17 +587,17 @@
           0.029985663078089756
         ],
         "cube_after": [
-          0.7227723546736166,
-          -0.650753240996857,
-          0.029987212477242748
+          0.732381427348384,
+          -0.6495942885436184,
+          0.029985846314341907
         ],
-        "cube_displacement_m": 0.02278480879624766,
+        "cube_displacement_m": 0.03238396885923868,
         "robot_after": [
-          0.6638804967613698,
-          -0.6410111017159082,
-          0.11601805029720011
+          0.6709419172924347,
+          -0.645888251747175,
+          0.11611805034376792
         ],
-        "upright": 0.9999649905274017
+        "upright": 0.9999959514128196
       }
     },
     {
@@ -607,13 +607,13 @@
       "detail": "RGB/state reached the existing DuckVLM decision client",
       "metrics": {
         "target_visible": true,
-        "target_range_m": 0.9044888059008801,
+        "target_range_m": 0.8050465825031494,
         "target_bearing_deg": 0.0,
         "token": "FWD",
-        "image_bytes": 3419,
+        "image_bytes": 3582,
         "note": "external model inference not claimed without credentials"
       }
     }
   ],
-  "elapsed_s": 3.003519599966239
+  "elapsed_s": 1.5985146010061726
 }
