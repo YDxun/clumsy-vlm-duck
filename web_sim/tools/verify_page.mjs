@@ -258,6 +258,45 @@ async function main() {
   check("规则模式真的在朝球走", runState.minRange !== null && runState.minRange < 1.0,
         `最近 ${runState.minRange?.toFixed(2)} m`);
 
+  // ---------------------------------------------------------------- 换指令再跑
+  // 用户报的 bug：跑一次 → 换句指令 → 再点开始，鸭子不动、也不再推理（阶段一直停在
+  // 上一次的状态）。根因是 _pending 这道"同一时刻只允许一次决策"的闸门，在请求还在飞
+  // 的时候按了停止/复位就再也没人消费它。这里把那条路径整个走一遍。
+  console.log("\n== 换指令再点开始（决策闸门不能被上一轮焊死）==");
+  const reuse = await page.evaluate(async () => {
+    const s = window.__sim, a = s.agent;
+    const waitFrame = () => new Promise((r) => requestAnimationFrame(r));
+    s.pause();
+    document.getElementById("stop").click();
+
+    // 1) 请求正在飞的时候按「停止决策」：闸门必须被清掉
+    a._pending = { settled: false, value: null };
+    a.phase = "thinking";
+    document.getElementById("stop").click();
+    const afterStop = { pending: !!a._pending, phase: a.phase };
+
+    // 2) 就算闸门里真的卡了一个迟到的结果，换指令再点开始也得能重新推理
+    a._pending = { settled: true, value: { token: "FWD", note: "late", error: null, stepIndex: 0 } };
+    a.phase = "finished";
+    document.querySelector('[data-decmode="rule"]').click();
+    s.setTask({ taskId: "walk_to_ball" });               // 换任务（点「开始」走的也是这条）
+    document.getElementById("run").click();
+    const before = a.records.length;
+    let last = { phase: a.phase, decisions: a.records.length, pending: !!a._pending };
+    const t0 = performance.now();
+    while (performance.now() - t0 < 8000) {
+      await waitFrame();
+      last = { phase: a.phase, decisions: a.records.length, pending: !!a._pending };
+      if (a.records.length > before) break;
+    }
+    document.getElementById("stop").click();
+    return { afterStop, before, afterRestart: last };
+  });
+  check("请求在飞时按「停止决策」，决策闸门就被放开了",
+        reuse.afterStop.pending === false, JSON.stringify(reuse.afterStop));
+  check("闸门里卡着上一轮结果时，换指令再点开始照样能推理",
+        reuse.afterRestart.decisions > reuse.before, JSON.stringify(reuse.afterRestart));
+
   // ---------------------------------------------------------------- 视角
   console.log("\n== 视角与三视角拼图 ==");
   for (const m of ["workspace", "overhead", "duck", "follow", "free"]) {
@@ -284,13 +323,58 @@ async function main() {
   check("右键平移生效（改轨道中心）", orbit.target?.[0] > 0.25, JSON.stringify(orbit.target));
   const takeover = await page.evaluate(() => {
     const s = window.__sim, v = s.view;
-    v.setMode("workspace"); v.frame();
-    // 模拟用户在固定机位上动鼠标：应当自动切到 free 并从当前机位接管
-    document.getElementById("canvas").dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
-    return { mode: v.mode, controlsEnabled: v.controls.enabled };
+    const c = document.getElementById("canvas");
+    const ev = (type, x, y) => c.dispatchEvent(new PointerEvent(type, {
+      button: 0, buttons: 1, clientX: x, clientY: y, bubbles: true,
+    }));
+    window.__sim.setMode("workspace"); s.view.frame();
+    // 1) 只是单击（按下就抬起，没有位移）：不该动视角
+    ev("pointerdown", 300, 300); ev("pointerup", 300, 300);
+    const afterClick = { mode: v.mode, on: [...document.querySelectorAll("#viewbar [data-mode].on")]
+      .map((b) => b.dataset.mode).join(",") };
+    // 2) 滚轮：也不该动视角（HF Space 里滚动外层页面就会把 wheel 甩到 canvas 上）
+    c.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }));
+    const afterWheel = v.mode;
+    // 3) 真的拖动：这时才自动接管成自由视角，且按钮高亮要同步过去
+    ev("pointerdown", 300, 300); ev("pointermove", 340, 320);
+    const afterDrag = { mode: v.mode, controlsEnabled: v.controls.enabled,
+      on: [...document.querySelectorAll("#viewbar [data-mode].on")].map((b) => b.dataset.mode).join(",") };
+    return { afterClick, afterWheel, afterDrag };
   });
-  check("在固定机位拖动会自动切到自由视角", takeover.mode === "free" && takeover.controlsEnabled === true,
-        JSON.stringify(takeover));
+  check("固定视角下单击画布不会切走视角",
+        takeover.afterClick.mode === "workspace" && takeover.afterClick.on === "workspace",
+        JSON.stringify(takeover.afterClick));
+  check("固定视角下滚轮不会切走视角（页面滚动不再偷换视角）",
+        takeover.afterWheel === "workspace", takeover.afterWheel);
+  check("固定视角下真的拖动才接管，且按钮高亮同步",
+        takeover.afterDrag.mode === "free" && takeover.afterDrag.controlsEnabled === true &&
+        takeover.afterDrag.on === "free", JSON.stringify(takeover.afterDrag));
+
+  // 决策运行不该动视角：这是用户反馈的 bug，锁进测试里
+  const viewDuringRun = await page.evaluate(async () => {
+    const s = window.__sim;
+    const read = () => ({
+      mode: s.view.mode,
+      on: [...document.querySelectorAll("#viewbar [data-mode].on")].map((b) => b.dataset.mode).join(","),
+    });
+    s.setMode("overhead");
+    document.getElementById("run").click();          // 走真正的按钮路径
+    const before = read();
+    let changed = null;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 6000) {           // 跑几个控制步，看会不会被改
+      await new Promise((r) => requestAnimationFrame(r));
+      const now = read();
+      if (now.mode !== before.mode || now.on !== before.on) { changed = now; break; }
+    }
+    document.getElementById("stop").click();
+    s.pause(); s.reset();                             // 收尾：别把鸭子留在半路影响后面的用例
+    return { before, changed: changed || read() };
+  });
+  check("点「开始」跑决策不会改变当前视角",
+        viewDuringRun.before.mode === viewDuringRun.changed.mode &&
+        viewDuringRun.before.on === viewDuringRun.changed.on,
+        `${JSON.stringify(viewDuringRun.before)} -> ${JSON.stringify(viewDuringRun.changed)}`);
 
   // ---------------------------------------------------------------- 手动按钮
   console.log("\n== 技能 token ==");
@@ -366,6 +450,7 @@ async function main() {
   check("低于步态地板的指令会被抬到地板", Math.abs(floor.normalized[2] - 1.15) < 1e-6,
         `下发 wz=0.80 -> 实际 ${floor.normalized[2]}`);
   try {
+    await page.click('[data-mode="overhead"]');        // 先明确选一个视角，看拍完会不会被留在「鸭子眼」
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 15000 }),
       page.click("#shot"),
@@ -374,6 +459,12 @@ async function main() {
     const p = path.join(ART, "step3_threeview.png");
     await download.saveAs(p);
     check("三视角拼图能下载", /^duckvlm_.*\.png$/.test(name), `${name} -> ${p}`);
+    const afterShot = await page.evaluate(() => ({
+      mode: window.__sim.view.mode,
+      on: [...document.querySelectorAll("#viewbar [data-mode].on")].map((b) => b.dataset.mode).join(","),
+    }));
+    check("三视角拼图拍完会回到用户原来选的视角",
+          afterShot.mode === "overhead" && afterShot.on === "overhead", JSON.stringify(afterShot));
   } catch (e) {
     check("三视角拼图能下载", false, String(e.message).slice(0, 120));
   }

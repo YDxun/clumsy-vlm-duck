@@ -223,6 +223,8 @@ async function activateScene(id) {
     } else {
       view.rebuild(duck);
     }
+    // 用户拖动画布自动接管成自由视角时，让按钮高亮跟着走（别停在旧按钮上）
+    view.onModeChange = (mode) => syncViewButtons(mode);
     const tView = performance.now();
     agent = new DuckAgent({ duck, view, scene: idx });
     agent.policies = policySessionsById;
@@ -335,11 +337,23 @@ async function boot_() {
 }
 
 // ---------------------------------------------------------------- 控件
+/**
+ * 视角按钮高亮。切视角的入口只有两个：用户点视角按钮、用户拖动画布自动接管。
+ * 两处都走这里，保证「高亮的按钮」和「真实的 camera mode」永远一致 ——
+ * 以前滚轮/拖动会把 mode 悄悄切成 free，而高亮还停在旧按钮上（画面看着像视角
+ * 自己变了，界面还自相矛盾）。
+ */
+function syncViewButtons(mode) {
+  for (const o of document.querySelectorAll("[data-mode]")) {
+    o.classList.toggle("on", o.dataset.mode === mode);
+  }
+}
+function setViewMode(mode) {
+  view && view.setMode(mode);
+  syncViewButtons(mode);
+}
 for (const b of document.querySelectorAll("[data-mode]")) {
-  b.onclick = () => {
-    for (const o of document.querySelectorAll("[data-mode]")) o.classList.toggle("on", o === b);
-    view && view.setMode(b.dataset.mode);
-  };
+  b.onclick = () => setViewMode(b.dataset.mode);
 }
 for (const b of document.querySelectorAll("[data-cmd]")) {
   b.onclick = () => {
@@ -623,9 +637,17 @@ function setupDecisionUi() {
     agent.phase = "idle";
     log(`[开始] ${task.taskId || task.text}，${agent.config.mode === "llm" ? agent.config.model : "规则模式"}`);
   };
-  $("stop").onclick = () => { driver.agent = false; agent.phase = "finished"; log("[停止] 决策已停止，鸭子原地站住"); };
+  $("stop").onclick = () => {
+    driver.agent = false;
+    // 关键：把"正在飞的那次决策"作废掉。不清的话下次点开始永远不再发起决策
+    // （闸门一直关着 —— 鸭子站着不动、日志也不新增，用户就是这么踩到的）
+    agent.abortPending();
+    agent.phase = "finished";
+    log("[停止] 决策已停止，鸭子原地站住");
+  };
   $("reset").onclick = () => {
     driver.agent = false;
+    agent.abortPending();
     duck.reset();
     agent.interpreter.resetHead();
     agent.records.length = 0;
@@ -638,6 +660,7 @@ function setupDecisionUi() {
   // ---- 三视角拼图：一眼看到「鸭子眼里的世界 / 它在哪 / 全场」
   $("shot").onclick = async () => {
     const modes = [["workspace", "全景"], ["overhead", "全场俯视"], ["duck", "鸭子眼（VLM 视角）"]];
+    const prevMode = view.mode;          // 拍完要还给用户原来选的视角
     const W = 480, H = 360;
     const out = document.createElement("canvas");
     out.width = W * 2 + 12; out.height = H * 2 + 12 + 22;
@@ -652,6 +675,8 @@ function setupDecisionUi() {
       ctx.drawImage($("canvas"), 0, 0, $("canvas").width, $("canvas").height, x, y, W, H);
       ctx.fillStyle = "#7fd1ff"; ctx.fillText(label, x + 6, y - 6);
     }
+    setViewMode(prevMode);               // 之前拍完就把人留在「鸭子眼」里了
+    view.frame();
     ctx.fillStyle = "#8b9bad";
     ctx.fillText(`DuckVLM · 任务：${agent.task.text} · 目标：${agent.task.target} · ${agent.config.mode === "llm" ? agent.config.model : "规则模式"}`,
                  8, out.height - 8);
@@ -739,7 +764,7 @@ window.__sim = {
       tail: runLog.slice(-6),
     };
   },
-  setMode(m) { view.setMode(m); view.frame(); },
+  setMode(m) { setViewMode(m); view.frame(); },      // 走页面同一条路，按钮高亮一起更新
   /** 停下来、重置、按固定动作跑 n 个控制步（确定性，不受 rAF 节奏影响）。 */
   async runSteps(n, cmd = [0, 0, 0]) {
     control.running = false;

@@ -117,6 +117,13 @@ export class DuckAgent {
     this.minRange = null;
     this.interpreter.cancel();
     this.interpreter.resetHead();
+    // 换任务 = 一张白纸：
+    //   · records 清空 —— 界面上的日志卡片换任务时清了，次数也得跟着归零，否则两者对不上；
+    //   · _pending 作废 —— 上一次"还在飞"的那次决策必须丢掉，不然决策闸门永远关着
+    //     （详见 abortPending 的注释）。
+    this.records = [];
+    this._pending = null;
+    this._idleS = 0;
     // 站位/判成功用的区域：优先用成功判据里那个（半径以任务为准，比如踢球是 0.30 而不是 0.35）
     const zone = zoneName && this.scene ? this.scene.zoneByName(zoneName) : null;
     this.stationZone = zone ? { ...zone, successRadius: zoneRadius } : null;
@@ -133,6 +140,21 @@ export class DuckAgent {
     const objMeta = (this.scene?.metadata?.objects || []).find((o) => o.body === this.task.target);
     this.manipObjectKind = objMeta?.kind || "unknown";
     return this.task;
+  }
+
+  /**
+   * 作废「正在飞的那次决策」—— 点「停止决策」「复位」时调用。
+   *
+   * `_pending` 是"同一时刻只允许一次决策"的闸门，而**只有 tick() 的 thinking 分支
+   * 会消费它**。所以外部一旦把 phase 改掉（停止/复位/换任务），那个已经落地或者还在
+   * 飞的结果就再也没人取走，闸门从此关着：再点开始，鸭子站着不动、一次推理都不发，
+   * 阶段停在最后那个状态 —— 用户实际踩到的就是这个（VLM 模式下一个请求要 1~3 s，
+   * 很容易在它飞的时候按停止）。
+   */
+  abortPending() {
+    this._pending = null;
+    this._idleS = 0;
+    if (this.phase === "thinking") this.phase = "idle";
   }
 
   /** 站位阶段该不该由规则接管：有目标区域 + 是操作类意图 + 开了开关。 */
@@ -330,6 +352,8 @@ export class DuckAgent {
    */
   tick(dt) {
     if (this.phase === "finished" || this.phase === "error") {
+      // 已经收工了就把闸门放开，别把"还在飞/已落地但没人消费"的那次决策一直挂着
+      this._pending = null;
       return { cmd: [0, 0, 0], headDelta: this.interpreter.headOverride(), phase: this.phase };
     }
     if (this.phase === "thinking") {

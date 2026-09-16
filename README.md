@@ -97,9 +97,9 @@ Every claim in this project comes with a command you can re-run, instead of "loo
 | Mesh pin | `node tools/check_mesh_pin.mjs` | PASS (38/38 byte-identical to the pinned upstream commit) |
 | Physics parity | `node tools/verify_wasm.mjs <scene>` | PASS ×3 (every body + a hash over all geom positions matches Python MuJoCo) |
 | Rendering | `node tools/verify_render.mjs` | 14/14 (pixel level: the duck on screen is the duck in the physics) |
-| Decision layer | `node tools/test_agent.mjs` | 103/103 |
+| Decision layer | `node tools/test_agent.mjs` | 107/107 |
 | Closed loop | `node tools/verify_agent.mjs` | 37/37 (includes real HTTP + CORS) |
-| Page | `node tools/verify_page.mjs` | 65/65 (clicks buttons, fills a key, tests the connection, downloads the composite) |
+| Page | `node tools/verify_page.mjs` | 71/71 (clicks buttons, fills a key, tests the connection, re-runs with a new instruction, downloads the composite) |
 | Real model | `node tools/verify_real_vlm.mjs` | 7–8/8 (real Qwen3-VL walks to the ball and stops on its own; the last check depends on making it within 0.45 m) |
 | Live HTML | `python tools/check_space_encoding.py` | PASS (0 mangled characters on the CDN) |
 | Published build | `node tools/smoke_site.mjs _site` | 8/8 (no node_modules, everything from CDN) |

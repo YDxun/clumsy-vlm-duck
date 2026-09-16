@@ -88,9 +88,9 @@ node tools\serve.mjs            # http://127.0.0.1:8787/
 | 网格 pin | `node tools/check_mesh_pin.mjs` | PASS（38/38 与上游固定 commit 字节一致） |
 | 物理一致性 | `node tools/verify_wasm.mjs <场景>` | PASS ×3（与 Python MuJoCo 逐 body + 全 geom 哈希一致） |
 | 渲染 | `node tools/verify_render.mjs` | 14/14（像素级：画面里的鸭子就是物理里的鸭子） |
-| 决策层单测 | `node tools/test_agent.mjs` | 103/103 |
+| 决策层单测 | `node tools/test_agent.mjs` | 107/107 |
 | 闭环 | `node tools/verify_agent.mjs` | 37/37（含真 HTTP + 跨域） |
-| 页面 | `node tools/verify_page.mjs` | 65/65（点按钮、填 key、测连通、下拼图） |
+| 页面 | `node tools/verify_page.mjs` | 71/71（点按钮、填 key、测连通、换指令复跑、下拼图） |
 | 真模型 | `node tools/verify_real_vlm.mjs` | 7~8/8（真 Qwen3-VL，自己走到球边收工；最后一条看这趟走没走到 0.45 m） |
 | 发布产物 | `node tools/smoke_site.mjs _site` | 8/8（无 node_modules，全 CDN） |
 | 线上 HTML | `python tools/check_space_encoding.py` | PASS（线上 0 个坏字符） |

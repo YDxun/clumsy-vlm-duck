@@ -246,6 +246,36 @@ console.log("\n== 7. agent：任务推断与进度 verbalization ==");
   ok("看不见目标时进度变成搜索", obs2.subgoal.startsWith("search:"), obs2.subgoal);
   ok("看不见目标时状态里没有距离", obs2.stateText.includes("not_found"), obs2.stateText);
   ok("看不见目标时 affordance 说明未检出", /not detected/.test(obs2.affordanceText), obs2.affordanceText);
+
+  // —— 决策闸门：一次决策还在飞的时候被打断，之后必须还能再发起决策。
+  //
+  // 用户报的 bug：VLM 模式跑一次 → 换句指令 → 再点开始，鸭子不动、也不再推理。
+  // 根因是 _pending 这个"同一时刻只允许一次决策"的闸门**只有 tick() 的 thinking
+  // 分支会消费**；在请求在飞时按「停止决策」/「复位」把 phase 改掉之后，那个结果
+  // 就永远没人取走，闸门从此关着。
+  agent.sensor = { snapshot: () => fakeState };
+  agent.setTask({ text: "去红方块" });
+  let lateResolve = null;
+  agent._decide = () => new Promise((r) => { lateResolve = r; });   // 假装请求还挂在网上
+  agent._idleS = agent.config.decisionEveryS;
+  agent.tick(0.02);
+  ok("够钟后进入 thinking 并挂上闸门", agent.phase === "thinking" && !!agent._pending,
+     `${agent.phase} / pending=${!!agent._pending}`);
+
+  agent.abortPending();                       // == 用户点「停止决策」
+  agent.phase = "finished";
+  lateResolve({ token: "FWD", note: "迟到的结果", error: null });   // 请求这时候才落地
+  ok("「停止决策」把闸门清掉，迟到的结果不会再堵住下一次",
+     agent._pending === null && agent.phase === "finished");
+
+  agent.setTask({ text: "去绿区" });           // == 用户换一句指令
+  ok("换任务时闸门重置、计数归零",
+     agent._pending === null && agent._idleS === 0 && agent.records.length === 0);
+  agent._idleS = agent.config.decisionEveryS;
+  const resumed = agent.tick(0.02);
+  ok("换指令后再点开始能重新发起决策", agent.phase === "thinking" && resumed.phase === "thinking",
+     `${agent.phase} / ${resumed.phase}`);
+  agent.abortPending();
 }
 
 console.log(`\n结果: ${failed ? "FAIL" : "PASS"} —— ${passed}/${passed + failed} 项通过`);

@@ -126,13 +126,35 @@ export class DuckView {
     this.controls.maxDistance = 20;
     this.controls.maxPolarAngle = Math.PI * 0.495;   // 不让相机钻到地面以下
     this.controls.enabled = false;
-    // 用户在固定机位下动鼠标 = 想自己看：切到 free，从当前机位接着操作。
-    const takeOver = () => {
+    // 用户在固定机位下**拖**鼠标 = 想自己看：切到 free，从当前机位接着操作。
+    //
+    // 这里有两个坑，都踩过：
+    //   1) 只在**真的拖**（位移超过阈值）时才接管。以前 pointerdown 就切，在画面上
+    //      随便点一下（比如想给页面聚焦）视角就没了。
+    //   2) **滚轮不再接管**。在 HF Space 里仿真器是 iframe，鼠标停在仿真器上滚动外层
+    //      页面时，wheel 事件会落到 canvas 上 —— 视角被悄悄换成 free，而按钮高亮还
+    //      停在原来那个（mode=free / 高亮=overhead，界面自相矛盾，看起来就是
+    //      「我没动它，视角自己变了」）。想缩放就点「自由视角」再滚。
+    const takeOver = (reason) => {
       if (this.mode === "duck") return;              // 鸭子第一人称不接管
-      if (this.mode !== "free") this.setMode("free", { fromCurrent: true });
+      if (this.mode === "free") return;
+      this.setMode("free", { fromCurrent: true });
+      this.onModeChange?.(this.mode, reason);        // 让页面把按钮高亮同步过去
     };
-    canvas.addEventListener("pointerdown", (e) => { if (e.button === 0 || e.button === 2) takeOver(); });
-    canvas.addEventListener("wheel", takeOver, { passive: true });
+    let pressed = null;
+    canvas.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 && e.button !== 2) return;
+      pressed = { x: e.clientX, y: e.clientY };
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!pressed) return;
+      if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < 4) return;   // 算是单击
+      pressed = null;
+      takeOver("drag");
+    });
+    for (const ev of ["pointerup", "pointercancel"]) {
+      canvas.addEventListener(ev, () => { pressed = null; });
+    }
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
