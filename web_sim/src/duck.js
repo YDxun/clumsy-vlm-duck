@@ -440,7 +440,16 @@ export class DuckSim {
     return obs;
   }
 
-  static async load({ sceneUrl, mjcfBase, wasmUrl }) {
+  /**
+   * @param {object} opts
+   * @param {string} opts.sceneUrl 场景 XML 的地址
+   * @param {string} opts.mjcfBase 场景目录（meshdir 相对它解析）
+   * @param {string} [opts.meshBase] **网格单独放别处时的基址**。默认同 mjcfBase。
+   *   存在的理由：机器人网格是 CC BY-SA-NC 的硬件设计文件，公开站点**不分发**它们，
+   *   而是运行时从上游固定 commit 取（见 THIRD_PARTY_NOTICES.md）。这样 NC/SA 的约束
+   *   落在访客自己的使用上，与我们分发的东西无关。
+   */
+  static async load({ sceneUrl, mjcfBase, meshBase = null, wasmUrl }) {
     const mujoco = await loadMujoco(wasmUrl ? { locateFile: () => wasmUrl } : undefined);
     const xml = await (await fetch(sceneUrl)).text();
     const dir = mjcfBase.replace(/\/$/, "");
@@ -448,10 +457,15 @@ export class DuckSim {
     // 复制 20 MB 机器人网格）。MuJoCo 的 VFS 把路径当字符串，`../_shared/x.stl`
     // 只要注册时用同一个字符串就行。浏览器 URL 里带 `..` 会自己规范化，不用管。
     const meshdir = (xml.match(/meshdir="([^"]+)"/) || [, "assets"])[1];
+    // 显式给 meshBase 时，它就是"网格所在的完整目录"（例如上游 assets 的 raw URL）；
+    // 否则按 XML 的 meshdir 相对场景目录解析（本地/自包含模式）。
+    const meshDir = meshBase ? meshBase.replace(/\/$/, "") : `${dir}/${meshdir}`;
     const vfs = new mujoco.MjVFS();
     vfs.addBuffer("scene.xml", new TextEncoder().encode(xml));
     for (const name of [...xml.matchAll(/<mesh\s+file="([^"]+)"/g)].map((m) => m[1])) {
-      const buf = new Uint8Array(await (await fetch(`${dir}/${meshdir}/${name}`)).arrayBuffer());
+      // 注意：URL 用 meshDir，**VFS 里的路径仍然按 XML 里的 meshdir 注册**
+      // （MuJoCo 拿 meshdir 拼出来找，路径必须对得上）
+      const buf = new Uint8Array(await (await fetch(`${meshDir}/${name}`)).arrayBuffer());
       vfs.addBuffer(`${meshdir}/${name}`, buf);
     }
     const model = mujoco.MjModel.from_xml_string(xml, vfs);

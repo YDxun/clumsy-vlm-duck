@@ -180,7 +180,11 @@ async function activateScene(id) {
       next.reset();                    // 复用的模型要回到关键帧，别接着上一局的状态
       log(`[场景] ${entry.id} 命中缓存（解析网格是换场景唯一的大头，一次约 10 s）`);
     } else {
-      next = await DuckSim.load({ sceneUrl: `${base}/scene.xml`, mjcfBase: `${base}/` });
+      // meshBase：清单里声明了就从那儿取网格（公开站点用上游固定 commit，不分发 NC 资产）
+      next = await DuckSim.load({
+        sceneUrl: `${base}/scene.xml`, mjcfBase: `${base}/`,
+        meshBase: manifest.meshBase || null,
+      });
       while (sceneCache.size >= SCENE_CACHE_MAX) {
         const [oldId, old] = sceneCache.entries().next().value;
         sceneCache.delete(oldId);

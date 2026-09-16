@@ -3,10 +3,12 @@
  *
  * 两种资产模式（这一点直接关系到**能不能合法公开**）：
  *
- *   --assets=inline     把 assets/ 一起拷进产物（自包含，22 MB 网格 + 7 MB 策略）
- *   --assets=external   不拷资产，改写 scenes.json 的 assetBase 指到外部托管
- *                       —— 照 quackd 的做法：**不重新分发资源**，浏览器运行时去上游取。
- *                       机器人网格的许可还没最终确认，公开站点建议走这个模式。
+ *   --assets=inline     assets/ 全拷（含 22 MB 网格）→ 自包含，但**会重新分发 CC BY-SA-NC 的网格**
+ *   --assets=external   **公开站点用这个**：不拷 `_shared/` 里的机器人网格，
+ *                       scenes.json 里写上 meshBase 指向上游固定 commit，
+ *                       浏览器运行时自己去取（照 quackd 的做法，不重新分发 NC 资产）。
+ *                       场景 XML 与 ONNX 策略仍随站点发布 —— 前者是我们自己的，
+ *                       后者是 Apache-2.0（见 THIRD_PARTY_NOTICES.md）。
  *
  * importmap 会被改写成 CDN（jsDelivr，版本号取自 package.json，避免"本地能跑线上不能跑"）。
  *
@@ -29,6 +31,14 @@ const ASSETS = arg("assets", "inline");
 const ASSET_BASE = arg("asset-base", "");
 /** 给 Hugging Face Space 用时写一份带 front-matter 的 README（sdk: static）。 */
 const SPACE_CARD = arg("space-card", "");
+/** 机器人网格的上游固定版本。CC BY-SA-NC 的硬件设计文件，公开站点不分发、运行时取。 */
+const UPSTREAM_MESH = {
+  repo: "pollen-robotics/microduck_rl",
+  commit: arg("mesh-commit", "cb70b792312d"),
+  path: "src/mjlab_microduck/robot/microduck/assets",
+};
+const UPSTREAM_MESH_BASE =
+  `https://raw.githubusercontent.com/${UPSTREAM_MESH.repo}/${UPSTREAM_MESH.commit}/${UPSTREAM_MESH.path}`;
 
 const CDN = "https://cdn.jsdelivr.net/npm";
 
@@ -68,10 +78,20 @@ async function main() {
   if (ASSETS === "inline") {
     await cp(path.join(ROOT, "assets"), path.join(OUT, "assets"), { recursive: true });
   } else if (ASSETS === "external") {
-    if (!ASSET_BASE) throw new Error("--assets=external 必须同时给 --asset-base=<URL>");
+    // 拷 assets/，但**跳过 _shared/**（那 38 个 STL 是 CC BY-SA-NC 的硬件设计文件）
+    await cp(path.join(ROOT, "assets"), path.join(OUT, "assets"), {
+      recursive: true,
+      filter: (src) => !src.split(path.sep).includes("_shared"),
+    });
+    const meshBase = arg("mesh-base", UPSTREAM_MESH_BASE);
     const manifest = JSON.parse(await readFile(path.join(ROOT, "scenes.json"), "utf8"));
-    manifest.assetBase = ASSET_BASE;
+    manifest.meshBase = meshBase;
+    manifest._meshBase说明 =
+      `机器人网格（CC BY-SA-NC 的硬件设计文件）不随本站分发，浏览器运行时从 ${UPSTREAM_MESH.repo} ` +
+      `的固定 commit ${UPSTREAM_MESH.commit} 取。要升级请显式改 pin，别用 main。`;
+    if (ASSET_BASE) manifest.assetBase = ASSET_BASE;
     await writeFile(path.join(OUT, "scenes.json"), JSON.stringify(manifest, null, 2) + "\n");
+    console.log(`[build] 网格: 不分发，运行时取 ${meshBase}`);
   } else {
     throw new Error(`--assets 只支持 inline / external，收到 ${ASSETS}`);
   }
@@ -104,7 +124,7 @@ colorFrom: yellow
 colorTo: blue
 sdk: static
 pinned: false
-license: apache-2.0
+license: other
 short_description: Zero-shot VLM control of a simulated duck, in your browser
 ---
 
@@ -118,6 +138,20 @@ short_description: Zero-shot VLM control of a simulated duck, in your browser
 - 鼠标可缩放/旋转/平移；一键三视角拼图
 
 模型与网格**不在本 Space 里重新分发**：页面运行时从上游固定版本取（见 scenes.json 的 assetBase）。
+
+## 第三方资产与许可
+
+| 内容 | 许可 | 关系 |
+| --- | --- | --- |
+| 本项目的代码（web_sim/） | Apache-2.0 | 我们的 |
+| 机器人 3D 模型（38 个 STL） | **CC BY-SA-NC**（上游 README 原文："Hardware design files are licensed under Creative Commons BY-SA-NC"） | **不在本 Space 里**：浏览器运行时从 pollen-robotics/microduck_rl 的固定 commit 取，本站不留任何字节。非商业与相同方式共享条款适用于**你**对这些文件的使用 |
+| ONNX 策略 | Apache-2.0（上游模型卡） | 随本站发布，署名见下 |
+| MuJoCo WASM / onnxruntime-web / three.js | Apache-2.0 / MIT / MIT | 由 CDN 在运行时加载 |
+
+上游项目：[pollen-robotics/microduck](https://github.com/pollen-robotics/microduck)、
+[pollen-robotics/microduck_rl](https://github.com/pollen-robotics/microduck_rl)、
+[microduck-policies](https://huggingface.co/pollen-robotics/microduck-policies)。
+本项目与 Pollen Robotics 无隶属或背书关系，"Microduck" 仅用于述明兼容性。
 `;
     await writeFile(path.join(OUT, "README.md"), card, "utf8");
     console.log(`[build] 已写 Space 卡片（sdk: static）`);
