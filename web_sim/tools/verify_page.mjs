@@ -329,22 +329,30 @@ async function main() {
     }
     document.getElementById("stop").click();
     const end = { ...s.duck.pose };
-    const out = { parsed, last, moved: Math.hypot(end.x - start.x, end.y - start.y) };
+    const out = { parsed, last, moved: Math.hypot(end.x - start.x, end.y - start.y),
+                  endUpright: s.duck.upright() };
     s.reset();
     return out;
   });
   check("纯动作指令被识别成序列，不再瞎猜目标",
         seqRun.parsed.intent === "sequence" && seqRun.parsed.target === "",
         JSON.stringify(seqRun.parsed));
-  check("拆成 前进 / 翻滚 / 跳舞 三步",
-        JSON.stringify(seqRun.parsed.steps) === JSON.stringify(["前进 1 m", "翻滚", "跳舞"]),
+  check("拆成 前进 / 翻滚 / 跳舞（已停用）三步",
+        seqRun.parsed.steps.length === 3 && seqRun.parsed.steps[0] === "前进 1 m" &&
+        seqRun.parsed.steps[1] === "翻滚" && /跳舞/.test(seqRun.parsed.steps[2]),
         JSON.stringify(seqRun.parsed.steps));
   check("序列能跑完（不被当成找球任务卡住）", seqRun.last?.phase === "finished",
         `${seqRun.last?.phase}｜${seqRun.last?.progress}`);
   check("真的走了一米，而不是原地做动作", seqRun.moved > 0.9, `${seqRun.moved.toFixed(2)} m`);
-  check("翻滚和跳舞都执行了",
-        (seqRun.last?.tokens || []).includes("ROLL") && (seqRun.last?.tokens || []).includes("DANCE"),
-        (seqRun.last?.tokens || []).join(","));
+  // 「跳舞」用的 happy_hop 实测会把鸭子放倒，所以现在是"跳过并说明原因"，
+  // 而不是真的执行 —— 同时序列收尾要确认鸭子是站着的。
+  check("翻滚执行了，跳舞被跳过且说了原因",
+        (seqRun.last?.tokens || []).includes("ROLL") &&
+        !(seqRun.last?.tokens || []).includes("DANCE") &&
+        /停用/.test(seqRun.parsed.steps.join("|")),
+        `${(seqRun.last?.tokens || []).join(",")}｜${seqRun.parsed.steps.join(" / ")}`);
+  check("序列结束时鸭子是站着的（躺下会用翻滚翻回来）",
+        seqRun.endUpright > 0.85, `upright=${seqRun.endUpright}`);
 
   // ---------------------------------------------------------------- 视角
   console.log("\n== 视角与三视角拼图 ==");
@@ -433,7 +441,9 @@ async function main() {
              skillButtons: [...document.querySelectorAll("#skill-bar [data-cmd]")].map((b) => b.dataset.cmd) };
   });
   check("页面把 9 个策略都装进来了", menu.names.length >= 9, menu.names.join(", "));
-  check("实测有效的技能进了 VLM 词表", menu.allowed.includes("ROLL") && menu.allowed.includes("DANCE"),
+  // 跳舞用的 happy_hop 会把鸭子放倒 → 已经降级成"未验证"，不再发给模型
+  check("实测有效的技能进了 VLM 词表（翻滚在、跳舞已撤下）",
+        menu.allowed.includes("ROLL") && !menu.allowed.includes("DANCE"),
         menu.allowed.join(","));
   check("未验证的技能没有发给模型", !menu.allowed.includes("KICK_R") && !menu.allowed.includes("STAND_UP"),
         menu.allowed.filter((t) => ["KICK_L", "KICK_R", "SIT", "STAND_UP"].includes(t)).join(",") || "（一个都没有，正确）");

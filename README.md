@@ -124,10 +124,13 @@ Every claim in this project comes with a command you can re-run, instead of "loo
 - **First load takes ~20–35 s.** The bottleneck is parsing 22 MB of robot meshes, not
   the network. A machine with a GPU helps, but this order of magnitude is inherent to
   the approach. There is no progress bar yet.
-- **The duck cannot get up after falling.** `alpha_standup.onnx` exists, but there is
-  no proper "knock the duck over" test pose yet, so `STAND_UP` is not offered to the
-  model. After a kick the duck often pitches forward and then cannot announce success
-  (the ball is in the zone and scoring looks at world state, so the task still counts).
+- **The upstream "dance" and "stand up" policies do not work as advertised** (measured):
+  `happy_hop` (the old dance) tips the duck onto its side and leaves it there, and
+  `alpha_standup` cannot get it back on its feet from that pose. The only reliable one is
+  `roulade` (roll) — 3/3 runs, about 4–5 s from lying flat back to standing. So the dance
+  is withdrawn from the VLM vocabulary and from the examples (a choreography now skips it
+  and says why), the "get up" button uses roulade, and a choreography verifies the duck is
+  upright before reporting completion.
 - **A ball cannot be pushed.** It is 15 g; any walking contact is an impulse, so
   pushing just launches it. Balls go through the kick policy; pushing is for cubes
   and cups.

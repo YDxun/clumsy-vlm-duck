@@ -235,3 +235,13 @@ F:\anaconda_ydx\python.exe tools\check_space_encoding.py           # 线上 HTML
     以前 `scanText` 找不到实体就退化成默认目标 `ball`，于是鸭子满场转圈找球、
     翻滚跳舞一次都没执行。现在 `sequence.js` 先识别成动作序列并接管
     （`intent: "sequence"`、`target: ""`），有目标物体的导航指令才走决策层。
+15. **上游技能策略必须实测，别信名字**：
+    * `happy_hop`（原本当"跳舞"）实测会把鸭子一点点歪到侧躺（upright 1.00 → 0.45），
+      策略结束切回走路后彻底摔平 —— 用户看到的"跳舞变成侧滚翻、后面还站不起来"
+      就是这个。它的 `verified` 已改成 `false`（不再进 VLM 词表），动作序列里遇到
+      "跳舞"会**跳过并写明原因**，界面按钮也标成「跳一下（会躺倒）」。
+    * `alpha_standup`（"起身"）从那个姿态**起不来**：upright 0.59 → -0.13 又躺回去。
+    * `roulade`（"翻滚"）反而能稳定地从躺平翻回站立：**3/3 次、约 4~5 s、
+      末态 upright 0.95**。所以「起身」按钮改成跑 roulade（`durationS: 6.0`），
+      动作序列收尾也会检查站姿、躺下就自动翻回来。
+    验证脚本：`web_sim/tools/_probe_dance.mjs`、`_probe_standup.mjs`、`_probe_recover.mjs`。

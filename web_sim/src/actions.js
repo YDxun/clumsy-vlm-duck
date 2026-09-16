@@ -60,8 +60,14 @@ export const ACTION_SPECS = {
     kind: "skill", policy: "roulade", durationS: 2.8, verified: true,
   },
   DANCE: {
-    token: "DANCE", description: "Run the happy-hop dance policy",
-    kind: "skill", policy: "happy_hop", durationS: 2.5, verified: true,
+    /**
+     * 实测：`happy_hop` **不是跳舞** —— 鸭子会一点点歪到侧面（upright 1.00 → 0.45），
+     * 策略结束时就是侧躺姿态，切回走路策略后彻底摔平，而且 alpha_standup 起不来。
+     * 所以它不再是"已验证"（不会进 VLM 词表），界面上也标成"会躺倒"。
+     * 见 docs/REPRODUCE.md 踩坑 #15。
+     */
+    token: "DANCE", description: "Run the happy-hop policy (WARNING: it ends lying on its side)",
+    kind: "skill", policy: "happy_hop", durationS: 2.5, verified: false,
   },
   // 下面四个策略文件都在仓库里、也都能被 onnxruntime-web 加载，但**从站立姿态 + 零速度指令**
   // 跑起来看不到可见动作：Python 端靠 LocalKick 的站位/状态机（先站稳、再进动作、再恢复）才踢得中。
@@ -79,8 +85,14 @@ export const ACTION_SPECS = {
     kind: "skill", policy: "alpha_sitstand", durationS: 1.5, verified: false,
   },
   STAND_UP: {
-    token: "STAND_UP", description: "Get back up onto the feet after a fall",
-    kind: "skill", policy: "alpha_standup", durationS: 2.0, verified: false,
+    /**
+     * 实测：`alpha_standup` 从侧躺姿态**起不来**（upright 0.59 → -0.13 又躺回去），
+     * 而 `roulade` 能稳定翻回站立（3/3 次，约 4~5 s，末态 upright 0.95）。
+     * 所以"起身"这条走 roulade，并给足时间。仍然 verified:false —— 不想让 VLM
+     * 在站着的时候也乱喊"起身"（那会真的翻一圈）。
+     */
+    token: "STAND_UP", description: "Roll back onto the feet from a lying pose (uses the roulade policy)",
+    kind: "skill", policy: "roulade", durationS: 6.0, verified: false,
   },
 };
 

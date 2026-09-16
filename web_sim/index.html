@@ -129,9 +129,9 @@
     <label for="task-text">或者自己写一句（自由文本）</label>
     <input id="task-text" placeholder="例如：去红方块 / 把球踢进绿色区域">
     <div class="row" id="seq-examples" style="margin-top:6px">
-      <button data-example="前进1米，再翻滚一次，最后跳舞">前进1米 → 翻滚 → 跳舞</button>
+      <button data-example="前进1米，再翻滚一次">前进1米 → 翻滚</button>
       <button data-example="原地左转90度，然后前进0.5米">左转90° → 前进0.5米</button>
-      <button data-example="前进1.5米，最后跳个舞">前进1.5米 → 跳舞</button>
+      <button data-example="前进1.5米，然后后退半米">前进1.5米 → 后退0.5米</button>
     </div>
     <div class="hint">带具体米数/角度的<b>动作编排</b>会逐步实测验收（走了几米、转了几度都量出来），
       这类指令不需要视觉；只有"去某处 / 找某物"才依赖鸭子眼睛。</div>
@@ -215,14 +215,17 @@
     </div>
     <div class="row" id="skill-bar">
       <button data-cmd="ROLL" class="primary">翻滚</button>
-      <button data-cmd="DANCE">跳舞</button>
+      <button data-cmd="DANCE">跳一下（会躺倒）</button>
       <button data-cmd="KICK_R">右脚踢</button>
       <button data-cmd="KICK_L">左脚踢</button>
       <button data-cmd="SIT">坐下</button>
       <button data-cmd="STAND_UP">起身</button>
     </div>
     <div class="hint">和 VLM 用的是同一套动作 token；按钮下发的是「走一步」而不是「一直走」。</div>
-    <div class="hint warn">技能里<b>翻滚 / 跳舞</b>是手动的；<b>踢球</b>不进词表，
+    <div class="hint warn"><b>「跳一下」会躺倒</b>：它用的 <code>happy_hop</code> 策略实测会把鸭子
+      一点点歪到侧面、最后躺平，而且官方那套起身策略起不来。躺下后请点 <b>翻滚</b> ——
+      实测它能自己翻回站立（约 4~5 s）。动作序列里遇到"跳舞"会直接跳过并说明原因。</div>
+    <div class="hint warn">技能里<b>翻滚</b>是手动的；<b>踢球</b>不进词表，
       因为它需要 ±1.5 cm 的站位精度，改由上面的「操作方式」用规则闭环执行
       （实测已能把球踢进绿色区域）。</div>
 

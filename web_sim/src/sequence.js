@@ -30,11 +30,21 @@ export function parseNumber(raw) {
 const NUM = "([0-9]+(?:\\.[0-9]+)?|[一二两三四五六七八九十]+|半)";
 const SKILL_WORDS = [
   [/(翻滚|翻个跟头|打个滚|翻一下|roll)/i, "ROLL", "翻滚"],
-  [/(跳舞|跳个舞|舞一支|dance)/i, "DANCE", "跳舞"],
   [/(坐下|坐一下|sit)/i, "SIT", "坐下"],
   [/(起身|站起来|起立|stand ?up)/i, "STAND_UP", "起身"],
   [/(低头|看地面|look ?down)/i, "LOOK_DOWN", "低头"],
   [/(抬头|回正|head ?center)/i, "HEAD_CENTER", "抬头"],
+];
+
+/**
+ * 认识、但**目前不能用**的动作。
+ *
+ * 「跳舞」曾经映射到 `happy_hop`，实测它会把鸭子一点点放倒到侧躺、策略结束后
+ * 彻底摔平且起不来 —— 用户看到的就是"跳舞怎么变成侧滚翻了，后面还站不起来"。
+ * 与其糊弄，不如明确告诉用户这一步被跳过（序列其余部分照跑）。
+ */
+const UNSUPPORTED_WORDS = [
+  [/(跳舞|跳个舞|舞一支|dance)/i, "跳舞（happy_hop 会把鸭子放倒，已停用）"],
 ];
 
 /**
@@ -88,6 +98,12 @@ export function parseSequence(text) {
       for (let i = 0; i < times; i++) steps.push({ kind: "skill", token: skill[1], label: skill[2] });
       continue;
     }
+    // 3.5) 认识但暂时用不了的动作：记成一步，跑到它时跳过并说明原因
+    const unsupported = UNSUPPORTED_WORDS.find(([re]) => re.test(part));
+    if (unsupported) {
+      steps.push({ kind: "unsupported", label: unsupported[1] });
+      continue;
+    }
     // 4) 停住
     if (/(停住|停下|站住|别动|stop)/i.test(part)) { steps.push({ kind: "stop", label: "停住" }); continue; }
     // 不认识的片段：整句放弃，别猜
@@ -120,6 +136,8 @@ export class SequenceRunner {
   reset() {
     this.index = 0;
     this.pulses = 0;
+    this.settled = false;          // 序列跑完 + 确认站着，才算真的完成
+    this.recoverTries = 0;
     this.startPose = null;
     this.startHeading = null;
     this.stepStarted = false;
@@ -128,22 +146,21 @@ export class SequenceRunner {
   }
 
   get active() { return this.steps.length > 0; }
-  get done() { return this.active && this.index >= this.steps.length; }
+  get done() { return this.active && this.index >= this.steps.length && this.settled; }
   get current() { return this.active ? this.steps[this.index] || null : null; }
 
   get progress() {
     if (!this.active) return "";
-    if (this.done) return `全部完成：${describeSequence(this.steps)}`;
+    if (this.settled) return `全部完成：${describeSequence(this.steps)}`;
+    if (this.index >= this.steps.length) return "正在确认站姿…";
     return `第 ${this.index + 1}/${this.steps.length} 步：${this.steps[this.index].label}`;
   }
 
   /** 一个控制步。返回 {command, headDelta, done, phase, note}；没在跑序列时返回 null。 */
   tick(dt) {
     if (!this.active) return null;
-    if (this.done) {
-      return { command: [0, 0, 0], headDelta: this.interpreter.headOverride(), done: true,
-               phase: "finished", note: `动作序列完成：${describeSequence(this.steps)}` };
-    }
+    if (this.settled) return this._finish("");
+    if (this.index >= this.steps.length) return this._settleTick(dt);
     const step = this.steps[this.index];
     if (!this.stepStarted) this._begin();
 
@@ -173,6 +190,10 @@ export class SequenceRunner {
     } else if (step.kind === "stop") {
       this.interpreter.cancel();
       return this._advance("停住", "STOP");
+    } else if (step.kind === "unsupported") {
+      // 认识、但现在不能用的动作：跳过，并把原因写清楚（其余步骤照跑）
+      this.interpreter.cancel();
+      return this._advance(`跳过 ${step.label}`, "");
     }
     // 关键：把解释器这一步的**速度指令**真的下发出去。
     // 以前这里写死 [0,0,0]，于是解释器永远推进不了、鸭子原地不动，
@@ -180,6 +201,37 @@ export class SequenceRunner {
     const out = this.interpreter.tick(dt);
     return { command: out.command, headDelta: this.interpreter.headOverride(),
              done: false, phase: "sequence", note: this.progress };
+  }
+
+  /**
+   * 收尾：确认鸭子是**站着**的再宣布完成。
+   *
+   * 实测 `happy_hop`（原本的"跳舞"）会把鸭子一点点放倒，`alpha_standup` 起不来；
+   * 唯一稳定有效的是 roulade —— 3/3 次、约 4~5 s 翻回站立（末态 upright 0.95）。
+   * 所以序列结束时只要鸭子是躺着的，就用翻滚策略翻回来再收工，
+   * 免得用户看到"任务完成"四个字，鸭子却躺在地上。
+   */
+  _settleTick(dt) {
+    const up = this.duck.upright();
+    if (up >= 0.6) return this._finish("");
+    if (this.recoverTries >= 6) {
+      return this._finish(`，但没能自己站起来（upright ${up.toFixed(2)}，可再点一次「翻滚」）`);
+    }
+    if (!this.interpreter.busy) {
+      this.interpreter.start("ROLL");
+      this.recoverTries += 1;
+    }
+    this.interpreter.tick(dt);
+    return { command: [0, 0, 0], headDelta: this.interpreter.headOverride(), done: false,
+             phase: "sequence",
+             note: `摔倒恢复中：翻滚第 ${this.recoverTries} 次（upright ${up.toFixed(2)}）` };
+  }
+
+  _finish(extra) {
+    this.settled = true;
+    return { command: [0, 0, 0], headDelta: this.interpreter.headOverride(), done: true,
+             phase: "finished",
+             note: `动作序列完成：${describeSequence(this.steps)}${extra}` };
   }
 
   _begin() {
@@ -196,9 +248,10 @@ export class SequenceRunner {
     this.stepStarted = false;
     this.startPose = null;
     this.startHeading = null;
+    const tail = this.index >= this.steps.length ? "正在确认站姿…"
+                                                 : `下一步：${this.steps[this.index].label}`;
     return { command: [0, 0, 0], headDelta: this.interpreter.headOverride(),
-             done: this.done, phase: "sequence", advanced: token,
-             note: `${note}｜${this.done ? "序列完成" : `下一步：${this.steps[this.index]?.label}`}` };
+             done: false, phase: "sequence", advanced: token, note: `${note}｜${tail}` };
   }
 
   /** 这一步已经走了多远（直线距离）。 */

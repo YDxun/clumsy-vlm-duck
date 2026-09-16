@@ -43,7 +43,9 @@ const NO_POLICY = availableTokens({});
 eq("基础 token 是 8 个", TOKENS.filter((t) => !SKILL_TOKENS.includes(t)), BASE8);
 eq("技能 token 6 个", SKILL_TOKENS.length, 6);
 eq("没加载策略时，发给模型的只有 8 个基础动作", NO_POLICY, BASE8);
-eq("加载翻滚+跳舞后词表多两个", availableTokens({ roulade: {}, happy_hop: {} }), [...BASE8, "ROLL", "DANCE"]);
+// happy_hop（原本的"跳舞"）实测会把鸭子放倒 → verified:false → 不再进词表
+eq("加载翻滚后词表多一个；跳舞已停用不进词表",
+   availableTokens({ roulade: {}, happy_hop: {} }), [...BASE8, "ROLL"]);
 eq("未验证的技能（踢球）不进词表", availableTokens({ ball_kick_right: {} }), BASE8);
 eq("显式要求时才带未验证技能", availableTokens({ ball_kick_right: {} }, { includeUnverified: true }), [...BASE8, "KICK_R"]);
 eq("直接输出", parseToken("FWD", TOKENS), "FWD");
@@ -287,18 +289,22 @@ console.log("\n== 9. 动作序列解析（「前进1米，再翻滚一次，最�
   eq("阿拉伯数字：1.5", parseNumber("1.5"), 1.5);
 
   const seq = parseSequence("前进1米，再翻滚一次，最后跳舞");
-  eq("用户原句拆成 3 步", seq.map((s) => s.kind), ["move", "skill", "skill"]);
+  // 「跳舞」现在是一步 unsupported：happy_hop 会把鸭子放倒，跳过它并说明原因
+  eq("用户原句拆成 3 步（跳舞那步是「已停用」）",
+     seq.map((s) => s.kind), ["move", "skill", "unsupported"]);
   eq("前进的米数被读出来", seq[0].meters, 1);
-  eq("翻滚在前、跳舞在后", [seq[1].token, seq[2].token], ["ROLL", "DANCE"]);
-  eq("能读成一句话", describeSequence(seq), "前进 1 m → 翻滚 → 跳舞");
+  eq("翻滚排在跳舞之前", seq[1].token, "ROLL");
+  ok("跳舞那步写明了为什么跳过", /happy_hop/.test(seq[2].label) && /停用/.test(seq[2].label), seq[2].label);
+  eq("能读成一句话", describeSequence(seq).startsWith("前进 1 m → 翻滚 → 跳舞（happy_hop"), true);
 
   eq("左转 + 前进", parseSequence("原地左转90度，然后前进0.5米").map((s) => [s.kind, s.deg ?? s.meters]),
      [["turn", 90], ["move", 0.5]]);
   eq("右转是负角度", parseSequence("右转45度")[0].deg, -45);
   eq("没说角度默认 90 度", parseSequence("左转")[0].deg, 90);
   eq("后退半米", parseSequence("后退半米")[0].meters, -0.5);
-  eq("翻滚三次展开成三步", parseSequence("翻滚三次，然后跳舞").map((s) => s.token),
-     ["ROLL", "ROLL", "ROLL", "DANCE"]);
+  eq("翻滚三次展开成三步（跳舞仍是 unsupported）",
+     parseSequence("翻滚三次，然后跳舞").map((s) => s.token ?? s.kind),
+     ["ROLL", "ROLL", "ROLL", "unsupported"]);
 
   // 关键：带目标的导航指令不能被误判成动作序列（否则会退化成"原地做动作"）
   eq("「去红方块旁边停下」不是序列", parseSequence("去红方块旁边停下"), []);
