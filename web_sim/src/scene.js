@@ -101,6 +101,56 @@ export class SceneIndex {
     return null;
   }
 
+  /** 按 body 名（或语义标签）找区域，返回带坐标/半径的对象。 */
+  zoneByName(name) {
+    if (!name) return null;
+    return (this.zoneList || []).find((z) => z.name === name || z.labels.includes(name)) || null;
+  }
+
+  /**
+   * **从任务的成功判据里推导出"要操作什么、送到哪"** —— 这是场景包声明的权威来源。
+   *
+   * 曾经这里是错的：网页端去读顶层 `curated.target`，但 tasks.yaml 的 schema 根本没有
+   * 这个字段（目标写在 `success` 的判据里），于是**所有 14 个任务**都悄悄退化成
+   * "从措辞推断"，只是碰巧推对了。加任务时一旦措辞里没有可识别名词，就会静默跑错目标。
+   *
+   * 判据 → 目标 的映射（按优先级）：
+   *   body_in_zone {body≠机器人}  → 要搬的东西就是 body，目的地是 zone   （踢球/推方块）
+   *   distance_xy_le {target}     → 要去的地方就是 target               （走过去/去信标）
+   *   body_in_zone {body=机器人}  → 没有要搬的东西，目标就是那个区域     （到蓝区）
+   *   ordered_zone_sequence       → 目标取第一个区域                     （按序访问）
+   *   其余（robot_pose_region / upright / speed / recover）→ 没有目标物体
+   *
+   * 注意 `distance_xy_ge` 是**避让**约束（别靠近蓝方块），不能当成目标。
+   */
+  taskTarget(task) {
+    if (!task) return { target: null, zone: null, radius: null, source: "no-task" };
+    const preds = [...(task.success?.all || []), ...(task.success?.any || [])];
+    const robotBody = this.metadata?.robot?.body_name || "trunk_base";
+    const bodyInZone = (fn) => preds.find((p) => p.type === "body_in_zone" && p.zone && fn(p));
+
+    const moving = bodyInZone((p) => p.body && p.body !== robotBody);
+    if (moving) return { target: moving.body, zone: moving.zone, radius: moving.radius_m ?? null,
+                         source: "body_in_zone" };
+
+    const reach = preds.find((p) => p.type === "distance_xy_le" && p.target);
+    if (reach) {
+      const zonePred = preds.find((p) => p.zone);
+      return { target: reach.target, zone: zonePred?.zone ?? null, radius: zonePred?.radius_m ?? null,
+               source: "distance_xy_le" };
+    }
+
+    const robotZone = bodyInZone(() => true);
+    if (robotZone) return { target: robotZone.zone, zone: robotZone.zone,
+                            radius: robotZone.radius_m ?? null, source: "robot_to_zone" };
+
+    const seq = preds.find((p) => p.type === "ordered_zone_sequence" && (p.zones || []).length);
+    if (seq) return { target: seq.zones[0], zone: seq.zones[0], radius: seq.radius_m ?? null,
+                      source: "zone_sequence" };
+
+    return { target: null, zone: null, radius: null, source: "no-object" };
+  }
+
   /** 句子里提到的实体，最具体的在前（同一个 body 只留一次）。 */
   scanText(text) {
     if (!norm(text)) return [];

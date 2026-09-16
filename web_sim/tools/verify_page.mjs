@@ -121,7 +121,16 @@ async function main() {
   const info = await page.textContent("#task-info");
   const agentTask = await page.evaluate(() => window.__sim.agent.task);
   check("选择任务后 agent 收到同一个 task id", agentTask.taskId === chosen, `${agentTask.taskId} / ${chosen}`);
-  check("界面显示解析出的目标与意图", /目标 = .+ · 意图 = /.test(info), info.trim());
+  // 关键是"目标从哪来"要显示出来：精选任务必须显示"来自成功判据"，
+  // 只有自由文本才允许是"从措辞推断"。见 tools/check_task_schema.mjs 的由来。
+  check("界面显示目标的来源（精选任务 = 来自成功判据）",
+        /目标 = \S+（来自成功判据）/.test(info), info.trim());
+  // 换一个"要把东西送到某处"的任务：它才带区域，而且半径应该取**成功判据里的 0.30**，
+  // 不是场景元数据里的 0.35（差那 5 cm 会让"自认为成功"和评测不一致）。
+  await page.selectOption("#task-select", "kick_ball_to_zone");
+  const zoneInfo = await page.textContent("#task-info");
+  check("带区域的任务显示区域名与判定半径（判据 0.30，不是元数据 0.35）",
+        /区域 = zone_green@0\.30m/.test(zoneInfo), zoneInfo.trim());
 
   // ---------------------------------------------------------------- 自由文本
   console.log("\n== 自由文本：去红方块 -> obj_cube_red ==");

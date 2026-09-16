@@ -6,9 +6,9 @@
 
 **当前进度：① 渲染器 ✅ ｜ ② 最小决策层 ✅ ｜ ③ 页面 ✅ ｜ 操作（推/踢）✅**
 
-六层验证当前状态：`verify_wasm`（3 个场景）PASS ｜ `verify_render` 14/14 ｜
-`test_agent` 90/90 ｜ `verify_agent` 37/37 ｜ `verify_page` 54/54 ｜
-`verify_real_vlm`（真 Qwen3-VL）8/8
+七层验证当前状态：`check:tasks`（3 个场景 14 个任务）PASS ｜ `verify_wasm`（3 个场景）PASS ｜
+`verify_render` 14/14 ｜ `test_agent` 103/103 ｜ `verify_agent` 37/37 ｜
+`verify_page` 54/54 ｜ `verify_real_vlm`（真 Qwen3-VL）8/8
 
 **已跑通的场景任务**（按场景包自己的成功判据）：
 `push_red_cube`（方块推进蓝区）、`kick_ball_to_zone`（球踢进绿区）、
@@ -43,6 +43,44 @@ F:\anaconda_ydx\python.exe tools\flatten_scene.py duck_obstacle_v1
 
 **自定义/外部场景**：把摊平后的目录 + 一份 `scenes.json` 放到任意静态托管（S3、GitHub Pages、
 HF Space…），在页面「自定义场景清单 URL」里填进去即可；清单里的 `assetBase` 指到场景目录所在位置。
+
+### 怎么加一个任务（以及为什么以前容易踩坑）
+
+任务的"要操作什么、送到哪"**不在顶层字段里，而写在 `success` 成功判据里**——
+网页端从这里推导：
+
+| 判据类型 | 推导出的目标 |
+| --- | --- |
+| `body_in_zone {body≠机器人, zone}` | 要搬的东西 = `body`，目的地 = `zone`（踢球、推方块） |
+| `distance_xy_le {target}` | 要去的地方 = `target`（走过去、去信标） |
+| `body_in_zone {body=机器人, zone}` | 没有要搬的东西，目标就是那个区域（到蓝区） |
+| `ordered_zone_sequence {zones}` | 取第一个区域（按序访问） |
+| `robot_pose_region` / `upright` / `ever_fallen` | **没有目标物体**（走到指定点、起身），网页端标成 "no-object" |
+
+> 这里踩过一个坑：网页端曾经去读**顶层 `curated.target`**，而 tasks.yaml 的 schema 里
+> 根本没有这个字段 —— 于是**全部 14 个任务**都在靠措辞推断，只是碰巧推对了。
+> 加任务时只要措辞里没有可识别名词，就会静默退化成默认的"球"，然后整局按错误目标跑。
+> 更糟的是当时的单测只断言"target 是个非空字符串"，推断出来的 `ball` 也能过 —— **测试掩盖了它**。
+
+现在有两道闸：
+
+```powershell
+node tools\check_task_schema.mjs      # 已挂进 npm run verify
+```
+
+1. **`check_task_schema.mjs`**：直接调用运行时的推导函数（不抄第二份规则），
+   逐个任务检查目标能不能推出来、推出来的对象和判据里引用的每个 body/zone
+   在 `metadata.yaml` 里是否真实存在（拼错就报）。
+2. **`test_agent.mjs`** 里逐任务钉死期望值（`walk_to_ball→ball`、`push_red_cube→obj_cube_red`…），
+   并断言精选任务的 `targetSource === "declared"` —— 只有自由文本才允许是 `inferred`。
+
+加任务时的 checklist：
+
+1. 在 `tasks.yaml` 里写 `id` / `instruction_zh` / `instruction_en`
+2. **把目标写进 `success` 判据**（`distance_xy_le.target` 或 `body_in_zone.body/zone`）
+3. 只有姿态/恢复类任务可以没有目标物体
+4. `robot_spawn` 别落在物体上
+5. 跑 `node tools/check_task_schema.mjs`，绿了再提交
 
 ### 换场景为什么不用重启
 
@@ -177,6 +215,13 @@ HF Space…），在页面「自定义场景清单 URL」里填进去即可；�
    最多 7 个站位。**先保证踢到，再谈踢准**。实测这一局就是标称站位第一脚命中的。
 
 瞄准自标定（用真实落点反推偏角）仍然保留，但它已经不在关键路径上了。
+
+> **一个已知的小缺口**：踢完之后鸭子常常前扑。摔倒后我加了"偶尔再看一眼"，
+> 但如果这个姿态下头摄看不到球，它就**不会宣布"完成"**——实测球明明在区域内
+> （离圆心 0.114 m）却停在"鸭子倒了，先停住"。
+> 场景评测看的是**世界状态**（球在不在区域里），所以任务本身算过；
+> 缺的只是 agent 自己的完成信号。要彻底修，得把 `STAND_UP` 接进来让它自动起身再看一眼
+> —— 而 `alpha_standup.onnx` 就在仓库里，只是还缺一个"正规摔倒"的验证姿态。
 
 ### 推东西：跑通了 ✅
 
@@ -346,10 +391,11 @@ web_sim/
 │   ├── verify_wasm.mjs     # 无浏览器：WASM 能否加载、物理是否与 Python 一致
 │   ├── verify_policy.mjs   # 无浏览器：物理+策略闭环
 │   ├── verify_render.mjs   # 真 Chrome：14 项像素级断言
-│   ├── test_agent.mjs      # 纯 Node：决策层 87 项单元测试
-│   ├── verify_agent.mjs    # 真 Chrome：33 项闭环断言（含真 HTTP + 跨域）
-│   ├── verify_page.mjs     # 真 Chrome：30 项页面断言（点按钮、填 key、下载拼图）
+│   ├── test_agent.mjs      # 纯 Node：决策层 103 项单元测试
+│   ├── verify_agent.mjs    # 真 Chrome：37 项闭环断言（含真 HTTP + 跨域）
+│   ├── verify_page.mjs     # 真 Chrome：57 项页面断言（点按钮、填 key、下载拼图）
 │   ├── verify_real_vlm.mjs # 真 Chrome + 真模型：让 Qwen 自己控制鸭子（无 key 则 SKIP）
+│   ├── check_task_schema.mjs # 任务 schema 校验：目标能不能从成功判据推出来、引用是否真实存在
 │   ├── mock_llm.mjs        # 假 OpenAI 端点，验证 BYO key 链路
 │   └── serve.mjs           # 极简静态服务器（.wasm/.onnx 的 MIME 很关键）
 ├── artifacts/              # verify_render 出的四视角截图

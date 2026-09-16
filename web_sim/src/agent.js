@@ -79,15 +79,32 @@ export class DuckAgent {
   setTask({ text = "", taskId = "", target = null } = {}) {
     const curated = taskId && this.scene ? this.scene.task(taskId) : null;
     const taskText = text || curated?.instruction_zh || curated?.instruction_en || taskId || "(no task set)";
+    // 精选任务的"要操作什么、送到哪"**从它的成功判据里推导**（场景包声明的权威来源）。
+    // 以前这里是读顶层 curated.target —— 那个字段在 tasks.yaml 的 schema 里根本不存在，
+    // 所以 14 个任务全都在靠措辞推断，只是碰巧推对了。
+    const derived = curated && this.scene ? this.scene.taskTarget(curated) : null;
     let resolvedTarget = target;
+    let targetSource = target ? "explicit" : "declared";
+    let zoneName = derived?.zone || null;
+    let zoneRadius = derived?.radius ?? null;
     if (!resolvedTarget) {
-      const hits = this.scene ? this.scene.scanText(taskText) : [];
-      resolvedTarget = (curated && curated.target) || pickTarget(hits, taskText).body;
+      if (derived?.target) {
+        resolvedTarget = derived.target;
+      } else {
+        // 自由文本，或者本来就是"没有目标物体"的任务（走到某点/起身）→ 只能靠措辞
+        const hits = this.scene ? this.scene.scanText(taskText) : [];
+        resolvedTarget = pickTarget(hits, taskText).body;
+        targetSource = derived ? "inferred-no-object" : "inferred";
+        const z = this.scene ? this.scene.zoneFor(taskText) : null;
+        zoneName = z?.name || zoneName;
+      }
     }
     this.task = {
       text: taskText,
       taskId: taskId || curated?.id || "",
       target: resolvedTarget || "ball",
+      targetSource,
+      targetReason: derived?.source || null,
       intent: resolveIntent(taskId, taskText),
       // 只把「策略在、且本地实测有效」的技能发给模型（见 actions.availableTokens）
       allowed: availableTokens(this.policies || {}),
@@ -100,7 +117,9 @@ export class DuckAgent {
     this.minRange = null;
     this.interpreter.cancel();
     this.interpreter.resetHead();
-    this.stationZone = (this.scene && this.scene.zoneFor(taskText)) || null;
+    // 站位/判成功用的区域：优先用成功判据里那个（半径以任务为准，比如踢球是 0.30 而不是 0.35）
+    const zone = zoneName && this.scene ? this.scene.zoneByName(zoneName) : null;
+    this.stationZone = zone ? { ...zone, successRadius: zoneRadius } : null;
     this.station.reset();
     this.pusher.reset();
     // 推还是踢：按任务语义自动选（"推/push/retrieve" → 推；"踢/kick" → 踢），也能手动指定
@@ -127,8 +146,12 @@ export class DuckAgent {
    * 球的位置**只在真的看见时**才喂进去；看不见就用锁存的计划继续走（航位推算）。
    */
   stationTick() {
+    const fallen = this.duck.upright() < 0.55;
     const needObs = !this.station.latched ||
-                     (this.duck.steps - (this._stationObsStep ?? -999)) > 60;
+                     (this.duck.steps - (this._stationObsStep ?? -999)) > 60 ||
+                     // 摔倒了也要继续偶尔看一眼：踢完球往往前扑，这时候球可能正好滚进区域，
+                     // 不看了就等于"事情做成了但没认账"（实测就是这样）。
+                     (fallen && (this.duck.steps - (this._stationObsStep ?? -999)) > 50);
     let ballXy = null;
     if (needObs) {
       this._stationObsStep = this.duck.steps;
@@ -163,7 +186,7 @@ export class DuckAgent {
       }
     }
     // 摔倒了就先别走：躺着继续下方位移指令只会在地上蹭
-    if (this.duck.upright() < 0.55) {
+    if (fallen) {
       this.station.note = "鸭子倒了，先停住（起身策略还没接入）";
       return { cmd: [0, 0, 0], kick: false, phase: "fallen", note: this.station.note };
     }

@@ -204,9 +204,33 @@ console.log("\n== 7. agent：任务推断与进度 verbalization ==");
   eq("自由文本推出目标", t.target, "obj_cube_red");
   eq("自由文本推出意图", t.intent, "approach");
 
-  const curated = agent.setTask({ taskId: "push_red_cube" });
-  eq("精选任务 id 也能上", curated.taskId, "push_red_cube");
-  ok("精选任务的靶子来自任务表", typeof curated.target === "string" && curated.target.length > 0, JSON.stringify(curated));
+  // 精选任务的靶子必须**从成功判据推导**出来，而不是靠措辞推断。
+  // 旧断言只检查"target 是非空字符串"，而推断出来的 "ball" 也满足它 —— 测试太弱，
+  // 掩盖了"14 个任务全在靠推断"这个事实（见 tools/check_task_schema.mjs）。
+  const EXPECT = [
+    ["walk_to_ball", "ball"],
+    ["kick_ball_to_zone", "ball"],
+    ["push_red_cube", "obj_cube_red"],
+    ["choose_red_not_blue", "obj_cube_red"],      // 别被"距离蓝方块≥0.45"那条判据抢走
+    ["avoid_obstacle_reach_beacon", "beacon_target"],
+  ];
+  for (const [id, want] of EXPECT) {
+    const t = agent.setTask({ taskId: id });
+    eq(`${id} 的目标来自成功判据`, t.target, want);
+    eq(`${id} 标记为 declared`, t.targetSource, "declared");
+  }
+  const kickZone = agent.setTask({ taskId: "kick_ball_to_zone" });
+  eq("踢球任务的区域半径用判据里的 0.30（不是元数据的 0.35）",
+     agent.stationZone?.successRadius, 0.3);
+  ok("踢球任务带上了区域名", agent.stationZone?.name === "zone_green", kickZone.text);
+
+  const freeTask = agent.setTask({ text: "去红方块" });
+  eq("自由文本标记为 inferred", freeTask.targetSource, "inferred");
+  eq("自由文本仍能推出目标", freeTask.target, "obj_cube_red");
+
+  const posed = agent.setTask({ taskId: "walk_turn_stop" });
+  ok("姿态类任务被标成 no-object（没有目标物体）",
+     posed.targetSource === "inferred-no-object", `${posed.targetSource}/${posed.target}`);
 
   agent.setTask({ text: "去红方块" });
   const obs = agent.buildObservation();

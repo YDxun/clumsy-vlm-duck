@@ -444,7 +444,16 @@ function applyTask() {
   const isFree = sel.value === "__free__";
   const text = isFree ? $("task-text").value.trim() : "";
   const task = agent.setTask({ taskId: isFree ? "" : sel.value, text });
-  $("task-info").textContent = `目标 = ${task.target} · 意图 = ${task.intent} · 允许动作 ${task.allowed.length} 个`;
+  // 目标从哪来必须显示出来：场景包声明的（成功判据）是权威，从措辞推断的是猜测。
+  // 之前两者混在一起，场景包与网页端对不上时完全没有迹象 —— 见 tools/check_task_schema.mjs
+  const srcLabel = {
+    declared: "来自成功判据", explicit: "手动指定",
+    inferred: "从措辞推断", "inferred-no-object": "无目标物体（姿态/恢复类）",
+  }[task.targetSource] || task.targetSource;
+  const zone = agent.stationZone;
+  $("task-info").textContent =
+    `目标 = ${task.target}（${srcLabel}）· 意图 = ${task.intent}` +
+    (zone ? ` · 区域 = ${zone.name}@${(zone.successRadius ?? zone.radius).toFixed(2)}m` : "");
   $("s-target").textContent = task.target;
   $("s-minrange").textContent = "—";
   $("decisions").innerHTML = '<div class="hint">还没有决策。点“开始”。</div>';

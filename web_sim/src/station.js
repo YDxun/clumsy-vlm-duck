@@ -94,7 +94,10 @@ export class StationKicker {
   }
 
   static ballInZone(ballXy, zone) {
-    return Math.hypot(ballXy.x - zone.x, ballXy.y - zone.y) <= (zone.radius ?? 0.3);
+    // 半径优先用**任务成功判据里的那个**（踢球任务要求 0.30，而场景元数据写的是 0.35，
+    // 差的那 5 cm 会让"自认为成功"和"评测认为成功"不一致）。
+    const r = zone.successRadius ?? zone.radius ?? 0.3;
+    return Math.hypot(ballXy.x - zone.x, ballXy.y - zone.y) <= r;
   }
 
   /**

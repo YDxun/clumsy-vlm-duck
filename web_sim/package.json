@@ -13,7 +13,8 @@
     "verify:agent": "node tools/verify_agent.mjs",
     "verify:page": "node tools/verify_page.mjs",
     "verify:vlm": "node tools/verify_real_vlm.mjs",
-    "verify": "npm run verify:wasm && npm run verify:render && npm run test:agent && npm run verify:agent && npm run verify:page && npm run verify:vlm"
+    "check:tasks": "node tools/check_task_schema.mjs",
+    "verify": "npm run check:tasks && npm run verify:wasm && npm run verify:render && npm run test:agent && npm run verify:agent && npm run verify:page && npm run verify:vlm"
   },
   "dependencies": {
     "@mujoco/mujoco": "^3.12.0",
