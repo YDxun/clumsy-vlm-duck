@@ -32,6 +32,8 @@ const MIME = {
   ".onnx": "application/octet-stream",  // 二进制，别让浏览器猜成文本
   ".stl": "model/stl",
   ".png": "image/png",
+  ".svg": "image/svg+xml",   // favicon 用 SVG：Chrome 对 MIME 严格，给错会拒绝渲染
+  ".ico": "image/x-icon",
   ".md": "text/markdown; charset=utf-8",
 };
 

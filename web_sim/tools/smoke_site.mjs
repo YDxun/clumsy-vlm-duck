@@ -82,6 +82,19 @@ async function main() {
   check("策略从配置的坐标取到了", state.policies >= 1, `${state.policies} 个`);
   check("动作词表可用", state.allowed.includes("FWD") && state.allowed.includes("LOOK_DOWN"), state.allowed.join(","));
 
+  // 标签页图标：以前是 `data:,` 占位（浏览器会用默认图标），现在应当是站点的 SVG 图标。
+  // 顺手验 MIME —— Chrome 对 SVG 图标的 MIME 很挑，给错就当没有。
+  const icon = await page.evaluate(async () => {
+    const link = document.querySelector('link[rel="icon"]');
+    const href = link ? link.getAttribute("href") : null;
+    const r = href ? await fetch(href) : null;
+    return { href, ok: !!r && r.ok, type: r ? r.headers.get("content-type") : null,
+             bytes: r ? (await r.text()).length : 0 };
+  });
+  check("页面图标已就位（SVG + 正确 MIME）",
+        icon.href && icon.href.endsWith("favicon.svg") && icon.ok && /svg/.test(icon.type || "") && icon.bytes > 500,
+        `${icon.href} · ${icon.type} · ${icon.bytes} 字节`);
+
   const run = await page.evaluate(async () => {
     const s = window.__sim;
     s.setTask({ taskId: "walk_to_ball" });

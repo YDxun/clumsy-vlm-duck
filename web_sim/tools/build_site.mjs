@@ -68,7 +68,7 @@ async function main() {
 
   // 2) 代码与配置
   await cp(path.join(ROOT, "src"), path.join(OUT, "src"), { recursive: true });
-  for (const f of ["policies.json", "scenes.json"]) {
+  for (const f of ["policies.json", "scenes.json", "favicon.svg", "favicon-180.png"]) {
     await cp(path.join(ROOT, f), path.join(OUT, f));
   }
   const runtimeBase = ASSET_BASE || `${CDN}/huggingface/...`; // 没给就用现场提示

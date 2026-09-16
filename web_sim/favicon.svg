@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Clumsy VLM Duck 图标 —— 按项目方的机器人鸭形象重绘的**矢量**版本。
+    为什么不用位图：favicon 会缩到 16 px，1024 px 的位图缩放后细节全糊，
+    而且矢量在任何 DPR 下都清晰。形状刻意简化到 6 个色块，16 px 仍能认出
+    「蓝方头 + 黄圈镜头 + 黄嘴」。
+  -->
+  <defs>
+    <linearGradient id="head" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3E92F0"/><stop offset="1" stop-color="#1F63C4"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2F80E0"/><stop offset="1" stop-color="#1B57AE"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="0.38" cy="0.32" r="0.85">
+      <stop offset="0" stop-color="#9BE4FF"/><stop offset="0.55" stop-color="#2FB6F5"/><stop offset="1" stop-color="#0E7BC4"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 身体与脚 -->
+  <ellipse cx="24" cy="58" rx="6.5" ry="3.2" fill="#0B2A55"/>
+  <ellipse cx="40" cy="58" rx="6.5" ry="3.2" fill="#0B2A55"/>
+  <ellipse cx="32" cy="51" rx="13" ry="9.5" fill="url(#body)" stroke="#0B2A55" stroke-width="2.6"/>
+  <!-- 背带 -->
+  <path d="M25 45.5 C 27 54, 37 54, 39 45.5" fill="none" stroke="#FFC61E" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- 爪子 -->
+  <path d="M17 46 C 13 48, 11 53, 13 56 C 15 58, 18 55, 19 52 Z" fill="#123B73" stroke="#0B2A55" stroke-width="1.6"/>
+  <path d="M47 46 C 51 48, 53 53, 51 56 C 49 58, 46 55, 45 52 Z" fill="#123B73" stroke="#0B2A55" stroke-width="1.6"/>
+  <circle cx="15.5" cy="52.5" r="2.1" fill="#FFC61E"/>
+  <circle cx="48.5" cy="52.5" r="2.1" fill="#FFC61E"/>
+
+  <!-- 脖子 -->
+  <rect x="28" y="41" width="8" height="4" fill="#0B2A55"/>
+
+  <!-- 头：蓝方壳 -->
+  <rect x="7" y="4" width="50" height="41" rx="12" fill="url(#head)" stroke="#0B2A55" stroke-width="3"/>
+  <circle cx="12.5" cy="9.5" r="1.7" fill="#8FD9FF"/>
+  <circle cx="51.5" cy="9.5" r="1.7" fill="#8FD9FF"/>
+
+  <!-- 镜头：黄圈 + 深色内框 + 青色镜片 + 高光。
+       环要**完整**（原图就是这样），所以镜头整体上移、鸭嘴放到环下面。 -->
+  <circle cx="32" cy="21.5" r="13.2" fill="#0B2A55"/>
+  <circle cx="32" cy="21.5" r="11.8" fill="#FFC61E"/>
+  <circle cx="32" cy="21.5" r="9.4" fill="#0B2A55"/>
+  <circle cx="32" cy="21.5" r="7.9" fill="url(#lens)"/>
+  <circle cx="28.6" cy="17.8" r="2.9" fill="#FFFFFF" opacity="0.9"/>
+
+  <!-- 鸭嘴：在环的下方（不遮住圆环），再下面是带格栅的下巴板 -->
+  <path d="M20.5 34.5 C 25 30.5, 39 30.5, 43.5 34.5 C 44.6 39, 19.4 39, 20.5 34.5 Z"
+        fill="#FFC61E" stroke="#0B2A55" stroke-width="2"/>
+  <rect x="26.5" y="38.5" width="11" height="5.5" rx="2.4" fill="#FFC61E" stroke="#0B2A55" stroke-width="1.8"/>
+  <g fill="#0B2A55">
+    <rect x="28.4" y="40" width="1.1" height="2.6" rx="0.5"/>
+    <rect x="30.4" y="40" width="1.1" height="2.6" rx="0.5"/>
+    <rect x="32.4" y="40" width="1.1" height="2.6" rx="0.5"/>
+    <rect x="34.4" y="40" width="1.1" height="2.6" rx="0.5"/>
+  </g>
+</svg>
