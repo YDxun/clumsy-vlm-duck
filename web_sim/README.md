@@ -582,3 +582,56 @@ node tools\verify_real_vlm.mjs "去红方块旁边停下" 12
 终点 **(0.44, -0.46)**，红方块在 (0.70, -0.65)、橙色球在 (0.90, 0.00) ——
 它朝的是方块不是球，说明**红/蓝/橙是靠画面分出来的，不是靠真值**。
 12 次决策 0 条解析失败，直立度 1.000。
+
+## 十一、上线到公网
+
+**已在线上跑着**：
+
+- Space：https://huggingface.co/spaces/XenderYang/duck-vlm-simulator
+- 直链（iframe 里真正加载的地址）：https://xenderyang-duck-vlm-simulator.static.hf.space
+- 代码：https://github.com/YDxun/microduck-duck-play（分支 `codex/duck-vlm-harness`）
+
+物理（MuJoCo WASM）、策略（onnxruntime-web）、VLM 调用**全在访客浏览器里**，
+没有后端：API key 由访客自带，直接发给所选厂商。
+
+### 一条命令打包
+
+```powershell
+cd web_sim
+node tools\build_site.mjs --out _site --space-card=XenderYang/duck-vlm-simulator
+node tools\smoke_site.mjs _site                    # 本地冒烟（无 node_modules）
+```
+
+产物：`index.html`（importmap 改写成 jsDelivr，版本号取自 package.json）、`src/`、
+`scenes.json` / `policies.json` / `site-config.json`（告诉 ORT 去哪取 wasm）、`assets/`。
+
+### 两种资产模式（这一条关系到能不能合法公开）
+
+| 模式 | 行为 |
+| --- | --- |
+| `--assets=inline` | 把 `assets/`（27.7 MB）一起打包，自包含 |
+| `--assets=external --asset-base=<URL>` | **不打包任何网格与策略**，改写 `scenes.json` 的 `assetBase` 指向外部，浏览器运行时去取 —— 照 quackd 的做法，**不重新分发资源** |
+
+> **许可待确认（公开宣传前最好落实）**：机器人网格来自 `pollen-robotics/microduck`
+> （他们仓库里挂的是 Apache-2.0，但 quackd 把 mesh 当作 CC BY-NC-SA）。
+> ONNX 策略是本项目自己的训练产物，可以自由分发。**想要彻底回避这个问题，
+> 就切到 `--assets=external`**，网格与策略都放外部，Space 里只剩下代码和场景 XML。
+
+### 更新线上版本
+
+```powershell
+cd web_sim
+node tools\build_site.mjs --out _site --space-card=XenderYang/duck-vlm-simulator
+F:\anaconda_ydx\python.exe -c "from huggingface_hub import HfApi; HfApi().upload_folder(repo_id='XenderYang/duck-vlm-simulator', repo_type='space', folder_path='_site', commit_message='update')"
+node tools\smoke_site.mjs https://xenderyang-duck-vlm-simulator.static.hf.space   # 线上冒烟
+```
+
+### 为什么必须单独做"产物冒烟"
+
+开发树里 three / MuJoCo WASM / onnxruntime-web 全从 `node_modules` 来，
+发布产物里全走 CDN —— 失败模式完全不同（CDN 路径错、wasm 取不到、跨域被拒），
+**"本地能跑"完全不能证明"线上能跑"**。`tools/smoke_site.mjs` 两种都测：
+本地目录和线上 URL，7 项断言（能否启动、场景、策略、词表、目标来源、闭环、报错）。
+
+实测首次加载 **~70 s（无头软件光栅化）**，瓶颈是 22 MB 网格的解析；
+真机有 GPU 会快得多，但首次加载依然需要进度提示 —— 这是这类方案的固有代价。
