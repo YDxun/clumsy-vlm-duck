@@ -5,6 +5,9 @@
  * 而"线上从上游取、本地拿自己那份验证"这种组合，只要内容有差，
  * 验证过的几何和访客实际跑的几何就不是一个东西。
  * 用 git blob SHA-1 比（GitHub tree API 直接给），不用下载 20 MB。
+ *
+ * 注意比的必须是**固定的那个 commit**，不是 HEAD —— 这正是当初发现问题的原因：
+ * 我们的网格来自 2fa62b8，HEAD 已经改过机器人模型，拿 HEAD 比只会得到"全不一致"。
  */
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
@@ -19,8 +22,11 @@ const SCENE = path.resolve(HERE, "../assets/_shared");
 const gitBlobSha = (buf) =>
   createHash("sha1").update(`blob ${buf.length}\0`, "utf8").update(buf).digest("hex");
 
+/** 与 flatten_scene.py / build_site.mjs 保持同一个 pin。 */
+const UPSTREAM = { repo: "pollen-robotics/microduck_rl", commit: "2fa62b86fd088e8b52b27ffc45a01633b4f88b82" };
+
 const tree = await (await fetch(
-  "https://api.github.com/repos/pollen-robotics/microduck_rl/git/trees/HEAD?recursive=1",
+  `https://api.github.com/repos/${UPSTREAM.repo}/git/trees/${UPSTREAM.commit}?recursive=1`,
   { headers: { "user-agent": "duck-vlm" } },
 )).json();
 const upstream = new Map(
@@ -40,9 +46,12 @@ for (const name of used) {
   else diffs.push({ name, local: local.slice(0, 10), upstream: up ? up.slice(0, 10) : "(上游没有)" });
 }
 
-console.log(`用到 ${used.length} 个网格 | 与上游一致 ${same} | 不一致 ${diffs.length}`);
+console.log(`pin: ${UPSTREAM.repo}@${UPSTREAM.commit.slice(0, 12)}`);
+console.log(`用到 ${used.length} 个网格 | 与该 commit 一致 ${same} | 不一致 ${diffs.length}`);
 if (diffs.length) {
-  console.log("不一致的：");
+  console.log("不一致的（说明本仓库的网格不是这个 pin 的版本，或者上游改了历史）：");
   for (const d of diffs.slice(0, 12)) console.log(`  ${d.name.padEnd(38)} 本地 ${d.local}  上游 ${d.upstream}`);
   if (diffs.length > 12) console.log(`  …还有 ${diffs.length - 12} 个`);
+  process.exit(1);
 }
+console.log("结果: PASS —— 本地网格与 pin 的字节完全一致，所以'本地验证过的几何'就是'访客跑的几何'");
