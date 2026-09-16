@@ -6,7 +6,9 @@
 
 # Clumsy VLM Duck
 
-**Try it in your browser (no install, no sign-up): <https://huggingface.co/spaces/XenderYang/duck-vlm-simulator>**
+**Try it in your browser (no install, no sign-up): <https://xenderyang-duck-vlm-simulator.static.hf.space/index.html>**
+
+(Or through the Space page: <https://huggingface.co/spaces/XenderYang/duck-vlm-simulator>)
 
 A microduck robot simulator that runs entirely in the browser. Physics (MuJoCo WASM),
 policies (onnxruntime-web) and the vision-language model call **all happen on the
@@ -20,6 +22,22 @@ closed loop.
 > No API key needed: the rule-based mode is fully playable. To try VLM zero-shot,
 > bring your own key (Qwen / Gemini / Claude all supported). The key stays in your
 > browser and is sent only to the vendor you pick.
+
+## Turning on VLM mode
+
+In the **Decision** panel on the right, click **VLM 模式（填自己的 key）**, then do
+exactly three things:
+
+1. Leave **用哪家的模型** on its default, **Qwen** (switch to Gemini / Claude if you want)
+2. Paste your API key into **把 API key 粘到这里**
+3. Click **测试一下能不能用** — a ✅ means it works, so hit **▶ 开始**
+
+The model is a dropdown (just pick one) and the base URL is filled in for you; both
+live under **高级：换模型 / 换地址** and you normally never touch them.
+The key lives only in your browser's localStorage and goes only to the vendor you
+picked — this project has no backend, so there is nowhere for it to leak to.
+
+<img src="web_sim/artifacts/vlm_panel_live_ok.png" alt="VLM panel: pick Qwen, paste the key, hit Test" width="390">
 
 ---
 
@@ -81,9 +99,10 @@ Every claim in this project comes with a command you can re-run, instead of "loo
 | Rendering | `node tools/verify_render.mjs` | 14/14 (pixel level: the duck on screen is the duck in the physics) |
 | Decision layer | `node tools/test_agent.mjs` | 103/103 |
 | Closed loop | `node tools/verify_agent.mjs` | 37/37 (includes real HTTP + CORS) |
-| Page | `node tools/verify_page.mjs` | 58/58 (clicks buttons, fills a key, downloads the composite) |
-| Real model | `node tools/verify_real_vlm.mjs` | 8/8 (real Qwen3-VL walks to the ball and stops on its own) |
-| Published build | `node tools/smoke_site.mjs _site` | 7/7 (no node_modules, everything from CDN) |
+| Page | `node tools/verify_page.mjs` | 65/65 (clicks buttons, fills a key, tests the connection, downloads the composite) |
+| Real model | `node tools/verify_real_vlm.mjs` | 7–8/8 (real Qwen3-VL walks to the ball and stops on its own; the last check depends on making it within 0.45 m) |
+| Live HTML | `python tools/check_space_encoding.py` | PASS (0 mangled characters on the CDN) |
+| Published build | `node tools/smoke_site.mjs _site` | 8/8 (no node_modules, everything from CDN) |
 
 `npm run verify` runs the whole chain; the real-model layer skips itself when no key is set.
 

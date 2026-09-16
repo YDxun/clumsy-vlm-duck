@@ -24,22 +24,26 @@ const DEFAULT_BASE = {
 
 export const PROVIDERS = {
   openai: {
-    label: "Qwen / OpenAI 兼容",
+    label: "Qwen（阿里百炼 DashScope）",
     defaultModel: "qwen3-vl-plus",
     defaultBaseUrl: DEFAULT_BASE.openai,
-    hint: "DashScope 兼容模式 / OpenAI / DeepSeek / Moonshot / 本地 vLLM、Ollama 都走这个",
+    hint: "兼容 OpenAI 的都能用：Qwen、OpenAI、DeepSeek、Moonshot，以及本地的 vLLM / Ollama",
+    // 这几个都实测过能用（2026-09 用新加坡区 key 逐个打过）。挑一个就行，不用手打。
+    models: ["qwen3-vl-plus", "qwen3-vl-flash", "qwen-vl-max", "qwen-vl-plus", "qwen3-vl-235b-a22b-instruct"],
   },
   gemini: {
-    label: "Gemini",
+    label: "Gemini（Google）",
     defaultModel: "gemini-2.5-flash",
     defaultBaseUrl: DEFAULT_BASE.gemini,
-    hint: "Google AI Studio 的 key；模型名可换成任何支持图片的 Gemini",
+    hint: "模型名可以换成任何支持图片的 Gemini",
+    models: ["gemini-2.5-flash", "gemini-2.5-pro"],
   },
   anthropic: {
-    label: "Claude",
+    label: "Claude（Anthropic）",
     defaultModel: "claude-sonnet-4-5",
     defaultBaseUrl: DEFAULT_BASE.anthropic,
-    hint: "需要浏览器直连头（本适配器已带）",
+    hint: "浏览器直连需要的头已经带好了",
+    models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-3-5-sonnet-latest"],
   },
 };
 

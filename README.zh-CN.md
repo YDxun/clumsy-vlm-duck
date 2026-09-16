@@ -6,7 +6,9 @@
 
 # Clumsy VLM Duck
 
-**在线试用（无需安装、无需注册）：<https://huggingface.co/spaces/XenderYang/duck-vlm-simulator>**
+**在线试用（无需安装、无需注册）：<https://xenderyang-duck-vlm-simulator.static.hf.space/index.html>**
+
+（也可以从 Space 页面进：<https://huggingface.co/spaces/XenderYang/duck-vlm-simulator>）
 
 一个跑在浏览器里的机器鸭仿真器：物理（MuJoCo WASM）、策略（onnxruntime-web）、
 视觉语言模型调用**全部在访客的浏览器里**，没有后端、没有服务器成本。
@@ -15,6 +17,21 @@ VLM 每一步输出一个**离散动作符号**（`FWD` / `TURN_L` / `LOOK_DOWN`
 
 > 不用 API key 也能玩：规则模式完整可用。想试 VLM zero-shot，就带自己的 key
 > （Qwen / Gemini / Claude 都支持），key 只存在你本机，只发给你选的厂商。
+
+## 怎么开 VLM 模式
+
+右边「决策」面板里点 **VLM 模式（填自己的 key）**，然后只做三件事：
+
+1. 「用哪家的模型」保持默认的 **Qwen** 就行（想试 Gemini / Claude 再换）
+2. 把 API key 粘进「把 API key 粘到这里」
+3. 点「测试一下能不能用」——出现 ✅ 就是通了，直接点「▶ 开始」
+
+模型名是个下拉，选一个即可；base URL 也会自动带对，都在
+「高级：换模型 / 换地址」里，平时用不到。
+key 只存在你本机浏览器的 localStorage，只发给你选的那家厂商的接口 ——
+这个项目没有后端，也没有任何地方能收到你的 key。
+
+<img src="web_sim/artifacts/vlm_panel_live_ok.png" alt="VLM 配置面板：选 Qwen、粘 key、点测试" width="390">
 
 ---
 
@@ -73,9 +90,10 @@ node tools\serve.mjs            # http://127.0.0.1:8787/
 | 渲染 | `node tools/verify_render.mjs` | 14/14（像素级：画面里的鸭子就是物理里的鸭子） |
 | 决策层单测 | `node tools/test_agent.mjs` | 103/103 |
 | 闭环 | `node tools/verify_agent.mjs` | 37/37（含真 HTTP + 跨域） |
-| 页面 | `node tools/verify_page.mjs` | 58/58（点按钮、填 key、下拼图） |
-| 真模型 | `node tools/verify_real_vlm.mjs` | 8/8（真 Qwen3-VL，自己走到球边收工） |
-| 发布产物 | `node tools/smoke_site.mjs _site` | 7/7（无 node_modules，全 CDN） |
+| 页面 | `node tools/verify_page.mjs` | 65/65（点按钮、填 key、测连通、下拼图） |
+| 真模型 | `node tools/verify_real_vlm.mjs` | 7~8/8（真 Qwen3-VL，自己走到球边收工；最后一条看这趟走没走到 0.45 m） |
+| 发布产物 | `node tools/smoke_site.mjs _site` | 8/8（无 node_modules，全 CDN） |
+| 线上 HTML | `python tools/check_space_encoding.py` | PASS（线上 0 个坏字符） |
 
 `npm run verify` 一次跑完（真模型那层没 key 会自动跳过）。
 

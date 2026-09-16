@@ -185,6 +185,42 @@ async function main() {
   check("换厂商会带出对应默认 base URL", baseBefore !== baseAfter && baseAfter.includes("generativelanguage"),
         baseAfter);
 
+  // 「只填一个 key 就能用」—— 模型是下拉且永远有值，地址自动带出
+  console.log("\n== 只填一个 key 就能用（模型/地址自动带出）==");
+  await page.selectOption("#llm-provider", "openai");
+  const modelOpts = await page.$$eval("#llm-model option", (e) => e.map((x) => x.value));
+  check("模型是个下拉，列表里有 qwen3-vl-plus", modelOpts.includes("qwen3-vl-plus"), modelOpts.join(", "));
+  const modelNow = await page.inputValue("#llm-model");
+  check("选 Qwen 后模型自动带出、不为空（空的会被服务端 400 掉）",
+        modelNow === "qwen3-vl-plus", JSON.stringify(modelNow));
+  const baseNow = await page.inputValue("#llm-base");
+  check("选 Qwen 后地址自动带出新加坡区", baseNow.includes("dashscope-intl"), baseNow);
+  check("高级区默认折叠（新手只看得到下拉 + key 两个框）",
+        !(await page.evaluate(() => document.querySelector("#llm-base").closest("details").open)));
+  check("高级区标题不写多余说明",
+        (await page.textContent("#llm-box summary")).trim() === "高级：换模型 / 换地址",
+        (await page.textContent("#llm-box summary")).trim());
+  check("base URL / 模型名不写进 localStorage（旧值盖掉新默认值的坑）",
+        !("baseUrl" in stored) && !("model" in stored), Object.keys(stored).join(","));
+
+  // 测试按钮：真发请求，报错要翻译成人话。指向没人监听的本地端口，不依赖外网。
+  const problemsBeforeTest = problems.length;
+  await page.evaluate(() => { document.querySelector("#llm-base").closest("details").open = true; });
+  await page.fill("#llm-base", "http://127.0.0.1:45999/v1");
+  await page.dispatchEvent("#llm-base", "change");
+  await page.click("#llm-test");
+  await page.waitForFunction(
+    () => /❌|✅|先在上面|模型名是空的/.test(document.getElementById("llm-test-result").textContent),
+    null, { timeout: 20000 });
+  const testMsg = (await page.textContent("#llm-test-result")).trim();
+  check("点「测试一下能不能用」会真发请求，且失败信息是人话",
+        testMsg.startsWith("❌") && !/Failed to fetch|TypeError|HTTP \d/.test(testMsg), testMsg);
+  // 这一步是故意打不通的，浏览器必然记一条「Failed to load resource」；
+  // 只豁免这段时间里这一类噪声，其它照旧上报。
+  const deliberateNoise = problems.splice(problemsBeforeTest);
+  problems.push(...deliberateNoise.filter((p) => !/Failed to load resource/.test(p)));
+  await page.selectOption("#llm-provider", "openai");   // 把地址恢复到默认，别影响后面的步骤
+
   await page.reload({ waitUntil: "load" });
   await page.waitForFunction("window.__duckReady === true", null, { timeout: 120000 });
   await page.evaluate(() => window.__sim.pause());

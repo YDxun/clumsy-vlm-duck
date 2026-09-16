@@ -22,6 +22,29 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
+
+/**
+ * 把 HTML 里所有非 ASCII 字符换成数字字符实体，让产物变成纯 ASCII。
+ *
+ * 为什么必须这么做：Hugging Face 的静态空间在服务 index.html 时，会往文件里
+ * 注入一段 `window.huggingface = {variables:{...}}`，而它是在**字节层面**切、
+ * 插进去的。切点正好落在某个 UTF-8 中文字符中间时，那个字被劈成两半，浏览器
+ * 就渲染成「模��」—— 线上 `<label>用哪家的模型</label>` 就是这么坏的。
+ * Hub 里存的文件本身是好的（sha256 与本地产物完全一致），坏的只是 static CDN
+ * 吐出来的那一份，证据见 `tools/_probe_hub_bytes.py` 与 `tools/_probe_inject.py`。
+ *
+ * 产物纯 ASCII 之后，注入怎么切都切不坏字符；浏览器解码实体后显示效果与原文一致。
+ * 仓库里的源文件保持可读的中文，不受影响。
+ */
+function toAsciiEntities(html) {
+  let out = "";
+  for (const ch of html) {              // 用 for..of 按码点遍历，代理对不会被拆开
+    const cp = ch.codePointAt(0);
+    out += cp > 0x7f ? `&#${cp};` : ch;
+  }
+  return out;
+}
+
 const arg = (name, dflt = null) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : dflt;
@@ -64,7 +87,11 @@ async function main() {
   const rewritten = html.replace(/<script type="importmap">[\s\S]*?<\/script>/,
     `<script type="importmap">\n${JSON.stringify({ imports: importMap }, null, 2)}\n</script>`);
   if (rewritten === html) throw new Error("没找到 importmap，index.html 的结构变了？");
-  await writeFile(path.join(OUT, "index.html"), rewritten, "utf8");
+  // 产物必须是纯 ASCII：见 toAsciiEntities 的注释（HF 静态空间会按字节注入脚本）
+  const asciiHtml = toAsciiEntities(rewritten);
+  const strayNonAscii = asciiHtml.match(/[^\x00-\x7f]/);
+  if (strayNonAscii) throw new Error(`index.html 产物里还有非 ASCII：${strayNonAscii[0]}`);
+  await writeFile(path.join(OUT, "index.html"), asciiHtml, "utf8");
 
   // 2) 代码与配置
   await cp(path.join(ROOT, "src"), path.join(OUT, "src"), { recursive: true });

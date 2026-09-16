@@ -43,7 +43,13 @@ class ChaseController:
 
         # --- choose foot + desired lateral offset once reasonably close ---
         if rng <= cfg["side_switch_range_m"]:
-            self.side = "kickL" if yaw >= 0.0 else "kickR"
+            ks = cfg.get("kick_side", "auto")
+            if ks == "left":
+                self.side = "kickL"
+            elif ks == "right":
+                self.side = "kickR"
+            else:
+                self.side = "kickL" if yaw >= 0.0 else "kickR"
             ty = cfg["side_offset_m"] if self.side == "kickL" else -cfg["side_offset_m"]
         else:
             self.side = None

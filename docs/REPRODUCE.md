@@ -143,10 +143,23 @@ node tools\build_site.mjs --out _site --assets=external --space-card=XenderYang/
 node tools\smoke_site.mjs _site                                    # 本地冒烟（无 node_modules）
 F:\anaconda_ydx\python.exe -c "from huggingface_hub import HfApi; HfApi().upload_folder(repo_id='XenderYang/duck-vlm-simulator', repo_type='space', folder_path='_site', commit_message='update')"
 node tools\smoke_site.mjs https://xenderyang-duck-vlm-simulator.static.hf.space   # 线上冒烟
+F:\anaconda_ydx\python.exe tools\check_space_encoding.py           # 线上 HTML 有没有被注入切坏中文
 ```
 
 `--assets=external` **不打包机器人网格**（前文所述的许可原因），只打包我们自己的
 场景 XML 与 Apache-2.0 的策略 ONNX，产物约 7 MB。
+
+最后那条 `check_space_encoding.py` 专门盯一个 HF 侧的坑（见第 8 节 #11）：
+静态空间会往 HTML 里按字节注入一段脚本，切在中文里就会把字劈坏。
+它会拿「本地产物 / Hub 存储 / 静态 CDN」三份比字节并数 `U+FFFD`，正常输出长这样：
+
+```
+  本地产物     16240 bytes  …  坏字符(U+FFFD)=0
+  Hub 存储     16240 bytes  …  坏字符(U+FFFD)=0
+  静态 CDN     16341 bytes  …  坏字符(U+FFFD)=0
+静态 CDN 注入的脚本：1 处 / 101 字节（这部分是正常的额外内容）
+结果: PASS —— 线上没有坏字符，产物是纯 ASCII
+```
 
 ## 7. 训练机上的目录（交接用）
 
@@ -175,3 +188,18 @@ node tools\smoke_site.mjs https://xenderyang-duck-vlm-simulator.static.hf.space 
 9. **PowerShell 5.1 的 UTF-8 陷阱**：`Get-Content -Raw | Set-Content -Encoding UTF8`
    会按 GBK 解码再写回，**把中文文档整篇转成乱码**。改文档用编辑器/`apply_patch`，
    不要用 PS 的读写往返。
+10. **ONNX Runtime 的 `wasmPaths` 必须是绝对 URL**：ORT 拿它按**自己模块**的位置去解析，
+    喂一个页面相对的 `./node_modules/...` 会被拼成 `dist/node_modules/...`，动态 import
+    直接失败 —— 表现是「8 个策略一个都装不上、页面永远卡在加载」。开发树里现在用
+    `new URL(...)` 转绝对地址（发布产物本来就写 CDN 绝对地址，所以只有开发树会踩）。
+11. **HF 静态空间会按字节往 HTML 里注入脚本**：它会插一段
+    `window.huggingface={variables:{...}}`，切点落在 UTF-8 中文中间时那个字就被劈成两半，
+    线上渲染成「模��」。Hub 里存的文件是好的，坏的只有 static CDN 吐出来的那份
+    —— 实测线上 4 个 `U+FFFD`，本地与 Hub 都是 0，能直接排除「上传坏了」这条猜测。
+    对策已经做进 `build_site.mjs`：产物 `index.html` 里的非 ASCII 全部转成
+    `&#NNNN;` 实体 → 纯 ASCII，怎么切都切不坏，浏览器解码后显示与原文一致。
+    **发布后跑 `tools/check_space_encoding.py` 确认线上 `U+FFFD=0`。**
+12. **VLM 面板的模型名曾经是空 input**：页面加载时走的是「不覆盖已有值」的分支，
+    而首次打开（localStorage 为空）时 input 本来就是空的，于是 `model` 是空串，
+    请求发出去被服务端回 400「you must provide a model parameter」。
+    现在模型是 `<select>`，永远有值。**教训：凡是能空的关键字段，别用空 input 当默认。**

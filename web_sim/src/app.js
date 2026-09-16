@@ -14,7 +14,7 @@ import { DuckSim, configureOrt, CONTROL_DT } from "./duck.js";
 import { DuckView } from "./view.js";
 import { SceneIndex } from "./scene.js";
 import { DuckAgent } from "./agent.js";
-import { PROVIDERS } from "./llm.js";
+import { PROVIDERS, askVlm } from "./llm.js";
 import { ActionInterpreter } from "./interpreter.js";
 import { ACTION_SPECS } from "./actions.js";
 
@@ -33,7 +33,13 @@ async function resolveOrtWasmPaths() {
     const res = await fetch("./site-config.json");
     if (res.ok) {
       const cfg = await res.json();
-      if (cfg.ortWasmPaths) return cfg.ortWasmPaths;
+      // 必须交**绝对 URL** 给 ORT：它会把 wasmPaths 按自己模块
+      // （node_modules/onnxruntime-web/dist/ort.min.mjs）的位置去解析，
+      // 喂一个页面相对的 "./node_modules/..." 会被拼成
+      // "dist/node_modules/onnxruntime-web/dist/..." —— 路径重复，动态 import 直接失败，
+      // 表现是「8 个策略一个都装不上、页面卡在加载」。发布产物里写的是 CDN 绝对地址，
+      // 所以只有开发树会踩到。
+      if (cfg.ortWasmPaths) return new URL(cfg.ortWasmPaths, location.href).href;
     }
   } catch { /* 没有配置文件就退回本地路径 */ }
   return new URL("../node_modules/onnxruntime-web/dist/", import.meta.url).href;
@@ -492,34 +498,104 @@ function setupDecisionUi() {
     o.value = id; o.textContent = p.label;
     prov.appendChild(o);
   }
-  const fillProvider = (id, keepValues = false) => {
+  /** 换一家厂商：把该家的模型列表和默认地址一起换掉。 */
+  const fillProvider = (id) => {
     const p = PROVIDERS[id];
     prov.value = id;
-    if (!keepValues) {
-      $("llm-base").value = saved.baseUrl || p.defaultBaseUrl;
-      $("llm-model").value = saved.model || p.defaultModel;
+    // 模型是个下拉，永远选中一项 —— 以前这里是空 input，第一次打开时
+    // model 是空串，请求发出去直接被服务端 400「you must provide a model」。
+    const sel = $("llm-model");
+    sel.innerHTML = "";
+    for (const m of (p.models || [p.defaultModel])) {
+      const o = document.createElement("option");
+      o.value = m; o.textContent = m;
+      sel.appendChild(o);
     }
+    const custom = document.createElement("option");
+    custom.value = "__custom__"; custom.textContent = "自定义（用别的模型）";
+    sel.appendChild(custom);
+    sel.value = p.defaultModel;
+    $("llm-model-custom").value = "";
+    $("llm-model-custom").hidden = true;
+    $("llm-base").value = p.defaultBaseUrl;
     $("llm-hint").textContent = p.hint;
   };
-  fillProvider(saved.provider || "openai", true);
-  if (saved.baseUrl) $("llm-base").value = saved.baseUrl;
-  if (saved.model) $("llm-model").value = saved.model;
+
+  const pickModel = () => ($("llm-model").value === "__custom__"
+    ? $("llm-model-custom").value.trim()
+    : $("llm-model").value);
+
+  fillProvider(PROVIDERS[saved.provider] ? saved.provider : "openai");
   if (saved.key) $("llm-key").value = saved.key;
-  prov.onchange = () => { fillProvider(prov.value); syncAgentConfig(); };
 
   const syncAgentConfig = () => {
+    const p = PROVIDERS[prov.value] || PROVIDERS.openai;
     Object.assign(agent.config, {
       provider: prov.value,
-      baseUrl: $("llm-base").value.trim(),
-      model: $("llm-model").value.trim(),
+      baseUrl: $("llm-base").value.trim() || p.defaultBaseUrl,
+      model: pickModel() || p.defaultModel,
       apiKey: $("llm-key").value.trim(),
     });
+    // 只存「厂商 + key」。base URL / 模型名每次都由代码里的默认值带出来，
+    // 免得以后改了默认值却被本机旧值盖掉（这个坑踩过一次）。
     localStorage.setItem(LS_KEY, JSON.stringify({
-      provider: prov.value, baseUrl: $("llm-base").value.trim(),
-      model: $("llm-model").value.trim(), key: $("llm-key").value.trim(),
+      provider: prov.value, key: $("llm-key").value.trim(),
     }));
   };
-  for (const el of [$("llm-base"), $("llm-model"), $("llm-key")]) el.onchange = syncAgentConfig;
+  prov.onchange = () => { fillProvider(prov.value); syncAgentConfig(); };
+  $("llm-model").onchange = () => {
+    const isCustom = $("llm-model").value === "__custom__";
+    $("llm-model-custom").hidden = !isCustom;
+    if (isCustom) $("llm-model-custom").focus();
+    syncAgentConfig();
+  };
+  for (const el of [$("llm-base"), $("llm-model-custom"), $("llm-key")]) el.onchange = syncAgentConfig;
+  syncAgentConfig();   // 一打开页面就让 agent.config 和界面上的值一致
+
+  /** 把常见错误翻译成人话 —— 用户看到 "HTTP 401" 是不知道该改什么的。 */
+  const humanError = (msg) => {
+    if (/HTTP 401|Incorrect API key|invalid_authentication/i.test(msg)) return "key 不对或没有权限（401）—— 检查是不是复制全了、有没有多余空格";
+    if (/HTTP 404|model not found|does not exist/i.test(msg)) return "模型名不对（404）—— 在下面「高级」里换个模型名试试";
+    if (/HTTP 429|rate limit|quota/i.test(msg)) return "额度用完或请求太频繁（429）—— 等一会儿或去控制台看余额";
+    if (/HTTP 400/.test(msg)) return "请求被拒（400）—— 多半是模型名或者这个 key 没开通该模型";
+    if (/跨域|Failed to fetch|连不上/.test(msg)) return "浏览器被跨域拦了或网络不通 —— 换一家厂商，或检查网络";
+    if (/超时/.test(msg)) return "请求超时 —— 网络慢或厂商在排队";
+    return msg.slice(0, 160);
+  };
+
+  /** 真发一次带图请求：既验证 key，也验证“图片这条路”通不通。 */
+  $("llm-test").onclick = async () => {
+    syncAgentConfig();
+    const out = $("llm-test-result");
+    const cfg = agent.config;
+    if (!cfg.apiKey && !/localhost|127\.0\.0\.1/.test(cfg.baseUrl || "")) {
+      out.textContent = "先在上面把 key 粘进来";
+      return;
+    }
+    if (!cfg.model) {
+      out.textContent = "模型名是空的 —— 打开下面「高级」选一个";
+      return;
+    }
+    out.textContent = `正在用 ${cfg.model} 试…`;
+    try {
+      const c = document.createElement("canvas");
+      c.width = c.height = 32;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#ff0000";
+      ctx.fillRect(0, 0, 32, 32);            // 一张 32×32 红方块，问它什么颜色
+      const res = await askVlm(cfg, {
+        prompt: "What colour is this square? Answer with one word.",
+        imageDataUrl: c.toDataURL("image/jpeg", 0.8),
+      });
+      const said = res.text.trim().slice(0, 24);
+      out.textContent = `✅ 通了：${cfg.model} 回了「${said}」，${(res.latencyMs / 1000).toFixed(1)} s`;
+      log(`[测试] ${cfg.model} 可用，回复「${said}」`);
+    } catch (e) {
+      const msg = humanError(String(e.message || e));
+      out.textContent = `❌ ${msg}`;
+      log(`[测试] 失败：${msg}`);
+    }
+  };
 
   for (const b of document.querySelectorAll("[data-decmode]")) {
     b.onclick = () => {

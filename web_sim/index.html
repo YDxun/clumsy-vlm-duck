@@ -136,19 +136,33 @@
 
     <h2>决策</h2>
     <div class="row">
-      <button data-decmode="rule" class="on">规则模式（无需 key）</button>
-      <button data-decmode="llm">VLM（BYO key）</button>
+      <button data-decmode="rule" class="on">规则模式（不用 key）</button>
+      <button data-decmode="llm">VLM 模式（填自己的 key）</button>
     </div>
     <div id="llm-box" hidden>
-      <label for="llm-provider">厂商</label>
+      <label for="llm-provider">用哪家的模型</label>
       <select id="llm-provider"></select>
-      <label for="llm-base">Base URL</label>
-      <input id="llm-base" spellcheck="false">
-      <label for="llm-model">模型</label>
-      <input id="llm-model" spellcheck="false">
-      <label for="llm-key">API key（只存在本机 localStorage）</label>
-      <input id="llm-key" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…">
-      <div class="hint" id="llm-hint"></div>
+
+      <label for="llm-key">把 API key 粘到这里</label>
+      <input id="llm-key" type="password" spellcheck="false" autocomplete="off"
+             placeholder="sk-…（只存在你本机浏览器，不会上传到任何服务器）">
+
+      <div class="row" style="margin-top:6px">
+        <button id="llm-test">测试一下能不能用</button>
+        <span class="hint" id="llm-test-result"></span>
+      </div>
+
+      <details style="margin-top:6px">
+        <summary class="hint" style="cursor:pointer">高级：换模型 / 换地址</summary>
+        <label for="llm-model">模型</label>
+        <select id="llm-model"></select>
+        <input id="llm-model-custom" hidden spellcheck="false"
+               placeholder="填你要用的模型名，例如 qwen3-vl-plus">
+        <label for="llm-base">Base URL</label>
+        <input id="llm-base" spellcheck="false">
+        <div class="hint" id="llm-hint"></div>
+        <div class="hint">这里改的只对本次页面有效，刷新后回到默认值。</div>
+      </details>
     </div>
 
     <div class="row" style="margin-top:12px">
