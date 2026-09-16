@@ -50,9 +50,10 @@ key 只存在你本机浏览器的 localStorage，只发给你选的那家厂商
 > 这类任务都要求目标（或路上的地标）能被它看见 —— 想跑通先挑 ★ 简单的，
 > 或者直接用动作编排（那条路完全不依赖视觉）。
 
-**已实测通过的场景任务**：`push_red_cube`（方块推进蓝区）、
-`kick_ball_to_zone`（球踢进绿区），以及真模型 zero-shot 的
-「go to the orange ball and stop next to it」。
+**已实测通过的场景任务**：`walk_forward_0_5`（前进 0.5 m）、`turn_left_90`（左转 90°）、
+`enter_red_zone`（走进红区，10.7 s 完成、末态距区域中心 0.24 m）、
+`push_red_cube`（方块推进蓝区）、`kick_ball_to_zone`（球踢进绿区），
+以及真模型 zero-shot 的「go to the orange ball and stop next to it」。
 
 ## 仓库结构
 
@@ -63,6 +64,8 @@ duck_vlm/      服务端 Python 版参考实现（同一套提示词、动作词
 duck_play/     Python 侧鸭子库（相机模型等，duck_vlm 依赖）
 docs/          复现与扩展文档
 THIRD_PARTY_NOTICES.md   第三方资产与许可
+_local/        **本机专属材料**（调研笔记 / 上游参考仓库 / 图纸与场景原始 zip / 早期实验 /
+               各种 .tmp 中间产物）。它不属于仓库、不会上传，删掉也不影响任何验证与发布。
 ```
 
 ## 本地跑起来
@@ -90,13 +93,13 @@ node tools\serve.mjs            # http://127.0.0.1:8787/
 
 | 层 | 命令 | 现状 |
 | --- | --- | --- |
-| 任务 schema | `node tools/check_task_schema.mjs` | PASS（14 条任务的目标都能从成功判据推出） |
+| 任务 schema | `node tools/check_task_schema.mjs` | PASS（23 条任务的目标都能从成功判据推出） |
 | 网格 pin | `node tools/check_mesh_pin.mjs` | PASS（38/38 与上游固定 commit 字节一致） |
 | 物理一致性 | `node tools/verify_wasm.mjs <场景>` | PASS ×3（与 Python MuJoCo 逐 body + 全 geom 哈希一致） |
 | 渲染 | `node tools/verify_render.mjs` | 14/14（像素级：画面里的鸭子就是物理里的鸭子） |
-| 决策层单测 | `node tools/test_agent.mjs` | 124/124（含动作序列解析） |
+| 决策层单测 | `node tools/test_agent.mjs` | 125/125（含动作序列解析） |
 | 闭环 | `node tools/verify_agent.mjs` | 37/37（含真 HTTP + 跨域） |
-| 页面 | `node tools/verify_page.mjs` | 76/76（点按钮、填 key、测连通、换指令复跑、动作序列、下拼图） |
+| 页面 | `node tools/verify_page.mjs` | 77/77（点按钮、填 key、测连通、换指令复跑、动作序列、下拼图） |
 | 真模型 | `node tools/verify_real_vlm.mjs` | 7~8/8（真 Qwen3-VL，自己走到球边收工；最后一条看这趟走没走到 0.45 m） |
 | 发布产物 | `node tools/smoke_site.mjs _site` | 8/8（无 node_modules，全 CDN） |
 | 线上 HTML | `python tools/check_space_encoding.py` | PASS（线上 0 个坏字符） |

@@ -1,11 +1,11 @@
 任务: go to the orange ball and stop next to it
 模型: qwen3-vl-plus
 
-#0 FWD raw="FWD" 607ms visible=true range=0.9030838178637395 bearing=0.00013952824385113434 rules=
-#1 FWD raw="FWD" 632ms visible=true range=0.8269500006551828 bearing=0.07492093613692566 rules=
-#2 FWD raw="FWD" 518ms visible=true range=0.7566417271982697 bearing=-0.030558709208944577 rules=
-#3 FWD raw="FWD" 511ms visible=true range=0.6888736258692921 bearing=-0.15936603234602478 rules=
-#4 FWD raw="FWD" 1389ms visible=true range=0.618041394073169 bearing=-0.2277898606803263 rules=
-#5 FWD raw="FWD" 633ms visible=true range=0.5460193793781499 bearing=-0.2495818017297179 rules=
-#6 TURN_R raw="TURN_R" 586ms visible=true range=0.4816710824056416 bearing=-0.3685404534452982 rules=
-#7 FWD raw="FWD" 494ms visible=true range=0.47718843802343924 bearing=-0.02766261166427916 rules=
+#0 FWD raw="FWD" 1438ms visible=true range=0.9030838178637395 bearing=0.00013952824385113434 rules=
+#1 FWD raw="FWD" 14342ms visible=true range=0.8229851888141094 bearing=0.06203994099800934 rules=
+#2 FWD raw="FWD" 1808ms visible=true range=0.7531769204289751 bearing=-0.05489517345441774 rules=
+#3 FWD raw="FWD" 1431ms visible=true range=0.6705086595866757 bearing=-0.0042812746194482686 rules=
+#4 FWD raw="FWD" 1061ms visible=true range=0.5906919138492442 bearing=0.011386765902802068 rules=
+#5 FWD raw="FWD" 3768ms visible=true range=0.5118415751935458 bearing=0.06346497084836111 rules=
+#6 FWD raw="FWD" 4535ms visible=true range=0.43593314629905155 bearing=0.07024025250431662 rules=
+#7 FWD raw="FWD" 919ms visible=true range=0.3587656754409121 bearing=0.06837603515495888 rules=

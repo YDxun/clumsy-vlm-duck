@@ -57,9 +57,10 @@ picked — this project has no backend, so there is nowhere for it to leak to.
 > other room" need the target (or a landmark on the way) visible. Start with the ★ easy
 > ones, or use a choreography instruction, which needs no vision at all.
 
-**Scene tasks that actually pass**: `push_red_cube` (cube into the blue zone),
-`kick_ball_to_zone` (ball into the green zone), and a real-model zero-shot
-"go to the orange ball and stop next to it".
+**Scene tasks that actually pass**: `walk_forward_0_5` (0.5 m forward), `turn_left_90`,
+`enter_red_zone` (10.7 s, ending 0.24 m from the zone centre), `push_red_cube` (cube into
+the blue zone), `kick_ball_to_zone` (ball into the green zone), plus a real-model
+zero-shot "go to the orange ball and stop next to it".
 
 ## Repository layout
 
@@ -70,6 +71,9 @@ duck_vlm/      Python reference implementation for the server side (same prompts
 duck_play/     Python duck library (camera model etc., used by duck_vlm)
 docs/          reproduction and extension notes
 THIRD_PARTY_NOTICES.md   third-party assets and their licences
+_local/        **machine-local material only** (research notes, upstream reference clones,
+               original zips, early experiments, .tmp leftovers). Not part of the repo, never
+               uploaded; deleting the folder breaks nothing.
 ```
 
 ## Run it locally
@@ -100,13 +104,13 @@ Every claim in this project comes with a command you can re-run, instead of "loo
 
 | Layer | Command | Status |
 | --- | --- | --- |
-| Task schema | `node tools/check_task_schema.mjs` | PASS (all 14 tasks derive their target from the success predicate) |
+| Task schema | `node tools/check_task_schema.mjs` | PASS (all 23 tasks derive their target from the success predicate) |
 | Mesh pin | `node tools/check_mesh_pin.mjs` | PASS (38/38 byte-identical to the pinned upstream commit) |
 | Physics parity | `node tools/verify_wasm.mjs <scene>` | PASS ×3 (every body + a hash over all geom positions matches Python MuJoCo) |
 | Rendering | `node tools/verify_render.mjs` | 14/14 (pixel level: the duck on screen is the duck in the physics) |
-| Decision layer | `node tools/test_agent.mjs` | 124/124 (includes choreography parsing) |
+| Decision layer | `node tools/test_agent.mjs` | 125/125 (includes choreography parsing) |
 | Closed loop | `node tools/verify_agent.mjs` | 37/37 (includes real HTTP + CORS) |
-| Page | `node tools/verify_page.mjs` | 76/76 (clicks buttons, fills a key, tests the connection, re-runs with a new instruction, runs a choreography, downloads the composite) |
+| Page | `node tools/verify_page.mjs` | 77/77 (clicks buttons, fills a key, tests the connection, re-runs with a new instruction, runs a choreography, downloads the composite) |
 | Real model | `node tools/verify_real_vlm.mjs` | 7–8/8 (real Qwen3-VL walks to the ball and stops on its own; the last check depends on making it within 0.45 m) |
 | Live HTML | `python tools/check_space_encoding.py` | PASS (0 mangled characters on the CDN) |
 | Published build | `node tools/smoke_site.mjs _site` | 8/8 (no node_modules, everything from CDN) |

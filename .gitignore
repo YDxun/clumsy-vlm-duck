@@ -31,6 +31,11 @@ web_sim/_site/
 web_sim/_shared/
 
 # --- 新仓库不再包含的内容（本地保留，供开发参考）---
+# 本机专属材料统一收在 _local/ 下（调研笔记 / 上游参考仓库 / 早期实验 /
+# 图纸与场景原始 zip / 各种 .tmp 中间产物）。它**不属于仓库**，
+# 想彻底清理直接删掉整个 _local/ 即可，不影响任何验证与发布。
+_local/
+
 # 机器人网格：CC BY-SA-NC 的硬件设计文件，见 THIRD_PARTY_NOTICES.md。
 # 摊平脚本会从上游固定 commit 取并校验 sha256，所以不需要提交。
 duck_scenes/robot/assets/
