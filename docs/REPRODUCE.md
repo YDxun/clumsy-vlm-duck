@@ -1,5 +1,10 @@
 # 复现与扩展
 
+> **English note** — This engineering document is Chinese-only for now (it is the
+> working log, not the pitch). The [English README](../README.md) covers what the
+> project is, how to run it and how to verify it; the commands below are copy-pasteable
+> regardless. Translations are welcome.
+
 这份文档记录**怎么从头把整套东西跑起来、怎么加东西、以及训练机上有哪些配置**。
 命令都在仓库根目录下执行。
 

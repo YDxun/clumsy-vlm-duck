@@ -1,5 +1,14 @@
 # 第三方组件与资产声明
 
+> **English summary** — This project's own code is Apache-2.0. The robot 3D models are
+> upstream **hardware design files licensed CC BY-SA-NC** (NonCommercial + ShareAlike);
+> they are **not distributed by this repository or by the live site** — the browser
+> fetches them at runtime from a pinned upstream commit
+> (`pollen-robotics/microduck_rl@2fa62b86fd08`) and each file is verified against the
+> sha256 manifest in `duck_scenes/robot/assets.SHA256SUMS`, so the BY / SA / NC terms
+> apply to *your* use of those files rather than to our distribution. The ONNX policies
+> are Apache-2.0. Details in Chinese below.
+
 本项目（Clumsy VLM Duck / DuckVLM 浏览器仿真）自己的代码以 Apache-2.0 发布。
 下面列的是**别人做的东西**、它们的许可、以及我们和它们的关系。
 

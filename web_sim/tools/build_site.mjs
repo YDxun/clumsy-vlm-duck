@@ -133,6 +133,17 @@ short_description: Zero-shot VLM control of a simulated duck, in your browser
 
 # DuckVLM 浏览器仿真（机器鸭 zero-shot 驾驶舱）
 
+**English** — A microduck robot simulator running entirely in your browser: physics
+(MuJoCo WASM), policies (onnxruntime-web) and the VLM call all happen on your machine,
+with no backend. The VLM emits one discrete action symbol per step (FWD, TURN_L,
+LOOK_DOWN, DONE …), an interpreter turns it into motion, a new photo is taken and
+sent back. **No API key needed** — the rule-based mode is fully playable; bring your own
+key only if you want VLM zero-shot (Qwen / Gemini / Claude).
+
+*中文说明见下方。*
+
+---
+
 物理（MuJoCo WASM）、策略（onnxruntime-web）和 VLM 调用**全部在你的浏览器里**跑，
 没有后端：API key 由你自带，只发给所选厂商。
 
@@ -142,19 +153,24 @@ short_description: Zero-shot VLM control of a simulated duck, in your browser
 
 模型与网格**不在本 Space 里重新分发**：页面运行时从上游固定版本取（见 scenes.json 的 assetBase）。
 
-## 第三方资产与许可
+## 第三方资产与许可 / Third-party assets and licences
 
-| 内容 | 许可 | 关系 |
+| Content | Licence | Our relationship |
 | --- | --- | --- |
-| 本项目的代码（web_sim/） | Apache-2.0 | 我们的 |
-| 机器人 3D 模型（38 个 STL） | **CC BY-SA-NC**（上游 README 原文："Hardware design files are licensed under Creative Commons BY-SA-NC"） | **不在本 Space 里**：浏览器运行时从 pollen-robotics/microduck_rl 的固定 commit 取，本站不留任何字节。非商业与相同方式共享条款适用于**你**对这些文件的使用 |
-| ONNX 策略 | Apache-2.0（上游模型卡） | 随本站发布，署名见下 |
-| MuJoCo WASM / onnxruntime-web / three.js | Apache-2.0 / MIT / MIT | 由 CDN 在运行时加载 |
+| This project's code (web_sim/) | Apache-2.0 | ours |
+| Robot 3D models (38 STL files) | **CC BY-SA-NC** — upstream README: "Hardware design files are licensed under Creative Commons BY-SA-NC" | **Not shipped here.** The browser fetches them at runtime from a pinned commit of pollen-robotics/microduck_rl; this Space stores none of them. The NonCommercial and ShareAlike terms apply to **your** use of those files. |
+| ONNX policies | Apache-2.0 (upstream model card) | published with this site, credited below |
+| MuJoCo WASM / onnxruntime-web / three.js | Apache-2.0 / MIT / MIT | loaded from a CDN at runtime |
 
 上游项目：[pollen-robotics/microduck](https://github.com/pollen-robotics/microduck)、
 [pollen-robotics/microduck_rl](https://github.com/pollen-robotics/microduck_rl)、
 [microduck-policies](https://huggingface.co/pollen-robotics/microduck-policies)。
 本项目与 Pollen Robotics 无隶属或背书关系，"Microduck" 仅用于述明兼容性。
+
+Upstream: [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck),
+[pollen-robotics/microduck_rl](https://github.com/pollen-robotics/microduck_rl),
+[microduck-policies](https://huggingface.co/pollen-robotics/microduck-policies).
+Not affiliated with or endorsed by Pollen Robotics; "Microduck" is used nominatively.
 `;
     await writeFile(path.join(OUT, "README.md"), card, "utf8");
     console.log(`[build] 已写 Space 卡片（sdk: static）`);
