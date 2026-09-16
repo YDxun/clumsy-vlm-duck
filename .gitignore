@@ -27,3 +27,4 @@ web_sim/tools/_*.mjs
 web_sim/artifacts/_*
 .tmp-robogo-*
 web_sim/_site/
+web_sim/_shared/

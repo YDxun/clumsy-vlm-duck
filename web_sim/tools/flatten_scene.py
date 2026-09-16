@@ -26,7 +26,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENES = ROOT / "duck_scenes" / "scenes"
 ROBOT = ROOT / "duck_scenes" / "robot"
 MANIFEST = Path(__file__).resolve().parents[1] / "scenes.json"
-SHARED_MESH_DIR = "../_shared"   # 所有场景共用的机器人网格（相对各场景目录）
+# 注意这是**两个不同的东西**，之前把它们混成一个常量，于是把网格写到了错误的目录
+# （out_root/../_shared = web_sim/_shared，而 XML 解析出来的是 out_root/_shared）：
+SHARED_MESH_DIR_XML = "../_shared"     # 写进 XML 的 meshdir，相对**各场景目录**解析
+SHARED_MESH_DIR_DISK = "_shared"       # 在磁盘上真正的位置：<out_root>/_shared
 OUT_ROOT = ROOT / "web_sim" / "assets"
 
 
@@ -231,12 +234,12 @@ def flatten(scene_id: str, out_root: Path = OUT_ROOT) -> dict:
     flat = re.sub(r'(<compiler\b[^>]*?)meshdir="[^"]*"', r"\1", flat)
     if re.search(r"<compiler\b[^>]*/>", flat):
         flat = re.sub(r"<compiler\b([^>]*?)/>",
-                      lambda m: f'<compiler{m.group(1)} meshdir="{SHARED_MESH_DIR}"/>', flat, count=1)
+                      lambda m: f'<compiler{m.group(1)} meshdir="{SHARED_MESH_DIR_XML}"/>', flat, count=1)
     else:
-        flat = re.sub(r"(<mujoco[^>]*>)", rf'\1\n <compiler meshdir="{SHARED_MESH_DIR}"/>', flat, count=1)
+        flat = re.sub(r"(<mujoco[^>]*>)", rf'\1\n <compiler meshdir="{SHARED_MESH_DIR_XML}"/>', flat, count=1)
     meshes = referenced_meshes(flat)
     out_dir = out_root / scene_id
-    assets_dir = (out_root / SHARED_MESH_DIR).resolve()   # ../_shared -> <out_root>/_shared
+    assets_dir = out_root / SHARED_MESH_DIR_DISK          # <out_root>/_shared，与 XML 解析结果一致
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)      # 网格搬去共享目录后，这里得自己建
@@ -277,6 +280,12 @@ def main() -> int:
     print(f"输出      : {info['out']}")
     print(f"XML       : {info['xml_bytes']} bytes")
     print(f"mesh      : {info['meshes']} 个, {info['bytes']/1048576:.2f} MB")
+    # 打印网格实际落盘位置，并和 XML 里 meshdir 的解析结果对一下 ——
+    # 这两者曾经不一致（脚本写到 <out>/../_shared，XML 却解析到 <out>/_shared），
+    # 靠"旧文件还在"掩盖了很久，从零摊平会直接坏掉。
+    meshd = Path(info["out"]) / ".." / "_shared"
+    print(f"网格目录  : {Path(info['out']).parent / '_shared'}")
+    print(f"XML 解析的: {meshd.resolve()}")
     print(f"力矩限幅  : {info['actuators']} 个执行器写入 ±{info['force_limit']:.6f}（与 Python LocalSim 一致）")
     print(f"场景清单  : {MANIFEST.relative_to(MANIFEST.parents[1])} 已更新")
     print(f"参考数据  : {info.get('reference')}")
