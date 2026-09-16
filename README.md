@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web_sim/favicon.svg" alt="Clumsy VLM Duck" width="150">
+</p>
+
 **English** | [简体中文](README.zh-CN.md)
 
 # Clumsy VLM Duck

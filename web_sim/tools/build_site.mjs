@@ -131,7 +131,11 @@ license: other
 short_description: Zero-shot VLM control of a simulated duck, in your browser
 ---
 
-# DuckVLM 浏览器仿真（机器鸭 zero-shot 驾驶舱）
+<p align="center">
+  <img src="favicon.svg" alt="Clumsy VLM Duck" width="150">
+</p>
+
+# Clumsy VLM Duck · 浏览器仿真（机器鸭 zero-shot 驾驶舱）
 
 **English** — A microduck robot simulator running entirely in your browser: physics
 (MuJoCo WASM), policies (onnxruntime-web) and the VLM call all happen on your machine,
@@ -174,6 +178,16 @@ Not affiliated with or endorsed by Pollen Robotics; "Microduck" is used nominati
 `;
     await writeFile(path.join(OUT, "README.md"), card, "utf8");
     console.log(`[build] 已写 Space 卡片（sdk: static）`);
+
+    // 自检：卡片里引用的图片必须真的在产物里，否则线上就是一个破图（而且没人会注意到）
+    const refs = [...card.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]);
+    const missing = [];
+    for (const ref of refs) {
+      if (/^https?:/.test(ref)) continue;
+      try { await stat(path.join(OUT, ref)); } catch { missing.push(ref); }
+    }
+    if (missing.length) throw new Error(`卡片引用了产物里不存在的图片：${missing.join(", ")}`);
+    if (refs.length) console.log(`[build] 卡片图片自检通过：${refs.join(", ")}`);
   }
 }
 
