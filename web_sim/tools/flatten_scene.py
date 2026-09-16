@@ -89,6 +89,50 @@ def bake_force_range(xml: str, limit: float = FORCE_LIMIT) -> tuple[str, int]:
     return out, count
 
 
+#: 机器人网格的上游出处。它们是 CC BY-SA-NC 的硬件设计文件（见 THIRD_PARTY_NOTICES.md），
+#: **本仓库不分发**；本地缺了就按这个固定 commit 取一份缓存。升级要显式改 pin，别用 main。
+#: **必须钉在这一版**：它是本项目场景与策略实际验证时用的那份几何。
+#: 上游 HEAD 的 robot 模型已经改过（2026-07-28 之后的提交），拿 HEAD 会得到
+#: 另一套网格 —— 本地验证过的几何和访客实际跑的就不是一个东西了。
+#: 依据：38 个网格的 git blob SHA 与上游该 commit 逐个一致（见 tools/_probe_meshintegrity.mjs）。
+UPSTREAM_MESH_REPO = "pollen-robotics/microduck_rl"
+UPSTREAM_MESH_COMMIT = "2fa62b86fd08"
+UPSTREAM_MESH_PATH = "src/mjlab_microduck/robot/microduck/assets"
+UPSTREAM_MESH_URL = (f"https://raw.githubusercontent.com/{UPSTREAM_MESH_REPO}/"
+                     f"{UPSTREAM_MESH_COMMIT}/{UPSTREAM_MESH_PATH}")
+
+
+def _mesh_hashes() -> dict:
+    """网格的 sha256 清单（由本地那份生成，随仓库提交）。上游换了文件、或中途被截断，
+    这里就会对不上 —— 这是"运行时不打包、改从上游取"能站得住的前提。"""
+    manifest = ROBOT / "assets.SHA256SUMS"
+    out = {}
+    if manifest.exists():
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2:
+                out[Path(parts[1]).name] = parts[0].lower()
+    return out
+
+
+def fetch_upstream_mesh(name: str, dst: Path) -> None:
+    """把单个网格从上游固定 commit 下到本地缓存，并校验 sha256。"""
+    import hashlib
+    import urllib.request
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_suffix(dst.suffix + ".part")
+    with urllib.request.urlopen(f"{UPSTREAM_MESH_URL}/{name}", timeout=60) as fp:
+        data = fp.read()
+    want = _mesh_hashes().get(name)
+    if want:
+        got = hashlib.sha256(data).hexdigest()
+        if got != want:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"{name} 的 sha256 与清单不符：期望 {want[:12]}…，实得 {got[:12]}…")
+    tmp.write_bytes(data)
+    tmp.replace(dst)
+
+
 def export_sidecar(scene_dir: Path, out_dir: Path) -> dict:
     """把场景包的 metadata.yaml / tasks.yaml 转成 JSON 一起发到浏览器。
 
@@ -252,11 +296,17 @@ def flatten(scene_id: str, out_root: Path = OUT_ROOT) -> dict:
             copied.append(name)
             continue
         src = ROBOT / "assets" / name
-        if src.exists():
-            shutil.copy2(src, dst)
-            copied.append(name)
-        else:
-            missing.append(name)
+        if not src.exists():
+            # 网格不在仓库里（它们是 CC BY-SA-NC 的硬件设计文件，本仓库不分发），
+            # 从上游固定 commit 取一份**本地缓存**，之后照常使用。
+            # 这样"全新克隆 → 摊平 → 跑起来"依然成立，而不需要把网格提交进来。
+            try:
+                fetch_upstream_mesh(name, src)
+            except Exception as exc:
+                missing.append(f"{name}（下载失败: {exc}）")
+                continue
+        shutil.copy2(src, dst)
+        copied.append(name)
 
     (out_dir / "scene.xml").write_text(flat, encoding="utf-8", newline="\n")
     sidecars = export_sidecar(scene_dir, out_dir)

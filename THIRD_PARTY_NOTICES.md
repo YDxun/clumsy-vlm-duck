@@ -16,11 +16,15 @@
 | 来源 | [`pollen-robotics/microduck_rl`](https://github.com/pollen-robotics/microduck_rl) `src/mjlab_microduck/robot/microduck/assets/` |
 | 许可 | **Creative Commons BY-SA-NC**（NonCommercial + ShareAlike） |
 | 依据 | 上游 README 第 190–191 行原文：<br>`This project is licensed under the Apache 2.0 License. See the LICENSE file for details.`<br>`Hardware design files are licensed under Creative Commons BY-SA-NC.`<br>注意：仓库根有 Apache-2.0 的 LICENSE，但 README 对**硬件设计文件**做了明确除外；上游未注明 CC 版本号，文件里也没有许可头。 |
-| 我们的做法 | **不分发**。`web_sim/scenes.json` 里的 `meshBase` 指向上游固定 commit<br>`https://raw.githubusercontent.com/pollen-robotics/microduck_rl/cb70b792312d/src/mjlab_microduck/robot/microduck/assets`<br>由访客浏览器在运行时下载，本站不存储、不打包、不镜像。 |
+| 我们的做法 | **不分发**。`web_sim/scenes.json` 里的 `meshBase` 指向上游固定 commit<br>`https://raw.githubusercontent.com/pollen-robotics/microduck_rl/2fa62b86fd08/src/mjlab_microduck/robot/microduck/assets`<br>由访客浏览器在运行时下载，本站不存储、不打包、不镜像。 |
 | 你要注意 | 只要你在用这些网格，**BY（署名）/ SA（相同方式共享）/ NC（非商业）**就适用于你。想商用请自行替换模型或另行获得授权。 |
-| 待办 | 目前**没有做哈希校验**（quackd 会逐个校验 sha256）。要更严格的话可以在 `DuckSim.load` 里加。 |
+| 完整性 | 本地摊平（`flatten_scene.py`）逐个校验 `duck_scenes/robot/assets.SHA256SUMS` 里的 sha256，对不上就报错而不是静默使用。浏览器端目前只校验文件名（可再加一层，待办）。 |
 
-固定 commit `cb70b792312d` 是**刻意钉死的**：升级要显式改 pin，避免上游悄悄换文件。
+固定 commit `2fa62b86fd08` 是**刻意钉死的，而且必须钉在这一版**：它是本项目场景与策略
+实际验证时用的那份几何。上游在这之后改过机器人模型（2026-07-28 之后的提交），
+钉到 HEAD 会让"本地验证过的几何"和"访客实际跑的几何"变成两套东西。
+依据：38 个网格的 git blob SHA 与该 commit **逐个一致**、与 HEAD **逐个不一致**
+（比对脚本 `web_sim/tools/check_mesh_pin.mjs`）。升级要显式改 pin 并重跑验证。
 
 ## 2. ONNX 策略（9 个）—— Apache-2.0，随本项目发布
 

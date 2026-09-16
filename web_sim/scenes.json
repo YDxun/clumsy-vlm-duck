@@ -13,34 +13,52 @@
       "id": "duck_workspace_v1",
       "title": "工作台 · 入门",
       "description": "4×4 m 封闭场地，一个矮台、两个障碍，球/红蓝方块/杯子/绿蓝区域",
-      "tags": ["入门", "6 个任务"],
+      "tags": [
+        "入门",
+        "6 个任务"
+      ],
       "dir": "duck_workspace_v1",
       "meshCount": 38,
       "meshBytes": 21590692,
-      "xmlBytes": 36473,
-      "sidecars": ["metadata", "tasks"]
+      "xmlBytes": 36476,
+      "sidecars": [
+        "metadata",
+        "tasks"
+      ]
     },
     {
       "id": "duck_home_v1",
       "title": "家庭 · 跨房间搜索",
       "description": "有隔墙和门洞的房间，考跨房间找球、按语义找信标、把球推到绿色区域",
-      "tags": ["高级", "3 个任务"],
+      "tags": [
+        "高级",
+        "3 个任务"
+      ],
       "dir": "duck_home_v1",
       "meshCount": 38,
       "meshBytes": 21590692,
-      "xmlBytes": 35537,
-      "sidecars": ["metadata", "tasks"]
+      "xmlBytes": 35540,
+      "sidecars": [
+        "metadata",
+        "tasks"
+      ]
     },
     {
       "id": "duck_obstacle_v1",
       "title": "障碍 · 地形与窄道",
       "description": "低台阶 + 12° 坡道 + 0.5 m 窄道 + 柱子，考地形通过、绕障推球、摔倒恢复",
-      "tags": ["高级", "5 个任务"],
+      "tags": [
+        "高级",
+        "5 个任务"
+      ],
       "dir": "duck_obstacle_v1",
       "meshCount": 38,
       "meshBytes": 21590692,
-      "xmlBytes": 36187,
-      "sidecars": ["metadata", "tasks"]
+      "xmlBytes": 36190,
+      "sidecars": [
+        "metadata",
+        "tasks"
+      ]
     }
   ]
 }

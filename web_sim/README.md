@@ -615,7 +615,7 @@ node tools\smoke_site.mjs _site                    # 本地冒烟（无 node_mod
 > **许可已处置完毕**：机器人网格是上游 `microduck_rl` README 里明确除外声明的
 > **CC BY-SA-NC 硬件设计文件**（仓库根的 Apache-2.0 不覆盖它们）。
 > 线上站点现在走 `--assets=external`：**一个字节的网格都不分发**，
-> 浏览器从上游固定 commit `cb70b792312d` 取。署名/非商业/相同方式共享这三条
+> 浏览器从上游固定 commit `2fa62b86fd08` 取。署名/非商业/相同方式共享这三条
 > 因此只适用于访客自己的使用，与本项目的分发无关。完整说明见根目录 `THIRD_PARTY_NOTICES.md`。
 
 ### 更新线上版本

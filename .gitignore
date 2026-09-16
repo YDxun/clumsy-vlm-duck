@@ -28,3 +28,14 @@ web_sim/artifacts/_*
 .tmp-robogo-*
 web_sim/_site/
 web_sim/_shared/
+
+# --- 新仓库不再包含的内容（本地保留，供开发参考）---
+# 机器人网格：CC BY-SA-NC 的硬件设计文件，见 THIRD_PARTY_NOTICES.md。
+# 摊平脚本会从上游固定 commit 取并校验 sha256，所以不需要提交。
+duck_scenes/robot/assets/
+# 旧仓库遗留：研究笔记、论坛帖草稿、开发过程脚本（历史记录留在旧仓库）
+research/
+_dev_cockpit/
+# 开发过程脚本
+.tmp_duck_vlm_demo/
+.tmp_scene_runtime.tgz

@@ -34,7 +34,10 @@ const SPACE_CARD = arg("space-card", "");
 /** 机器人网格的上游固定版本。CC BY-SA-NC 的硬件设计文件，公开站点不分发、运行时取。 */
 const UPSTREAM_MESH = {
   repo: "pollen-robotics/microduck_rl",
-  commit: arg("mesh-commit", "cb70b792312d"),
+  // 钉在 2fa62b8：本项目场景与策略实际验证用的就是这一版几何。
+  // 上游 HEAD 的 robot 模型已改过，用 HEAD 会让"验证过的几何"和"访客跑的几何"不一致
+  // （38 个网格的 git blob SHA 逐个比对确认，见 tools/_probe_meshintegrity.mjs）。
+  commit: arg("mesh-commit", "2fa62b86fd08"),
   path: "src/mjlab_microduck/robot/microduck/assets",
 };
 const UPSTREAM_MESH_BASE =

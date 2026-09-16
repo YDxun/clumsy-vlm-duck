@@ -1,0 +1,4 @@
+{
+  "_说明": "页面运行时配置。开发树里指向本地 node_modules；build_site.mjs 会在发布产物里覆盖成 CDN 地址（这就是为什么开发树也要有这份文件——没有它页面会去取一个 404，代码能兜底但浏览器会记错误）。",
+  "ortWasmPaths": "./node_modules/onnxruntime-web/dist/"
+}
