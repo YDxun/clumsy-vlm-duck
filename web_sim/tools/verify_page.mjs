@@ -56,7 +56,11 @@ async function main() {
         `${opts.length} 项（场景 ${sceneTasks.length} 条）`);
   check("每一项都是场景里的真实 task id",
         sceneTasks.every((id) => opts.some((o) => o.v === id)), sceneTasks.join(", "));
-  check("标签里带人类可读的指令", opts[0].t.includes("—") && opts[0].t.length > opts[0].v.length + 3, opts[0].t);
+  // 选项标签 =「难度标记 · 中文指令」（以前是「id — 指令」）
+  const firstSceneTask = await page.evaluate(() => window.__sim.scene.listTasks()[0]);
+  check("标签里带人类可读的指令",
+        opts[0].t.includes(firstSceneTask.instruction_zh || firstSceneTask.instruction_en) &&
+        opts[0].t.length > opts[0].v.length + 3, opts[0].t);
 
   // ---------------------------------------------------------------- 多场景
   console.log("\n== 多场景：清单驱动 + 热切换（不重启服务）==");
@@ -82,9 +86,10 @@ async function main() {
         `${switched.before} -> ${switched.after}，${(switched.ms / 1000).toFixed(1)} s`);
   check("渲染跟着换成新场景的几何", switched.meshes === switched.geoms && switched.geoms > 0,
         `${switched.meshes} 个 mesh / ${switched.geoms} 个 geom`);
-  check("任务表换成了新场景的", switched.tasks.length === 3 && switched.tasks.includes("search_ball_across_rooms"),
+  check("任务表换成了新场景的", switched.tasks.length >= 3 && switched.tasks.includes("search_ball_across_rooms"),
         switched.tasks.join(", "));
-  check("场景信息栏显示标题与描述", switched.info.includes("家庭") && switched.info.includes("任务 3 条"),
+  check("场景信息栏显示标题与描述",
+        switched.info.includes("家庭") && switched.info.includes(`任务 ${switched.tasks.length} 条`),
         switched.info.slice(0, 70));
   const cachedSwitch = await page.evaluate(async () => {
     const t0 = performance.now();
@@ -116,7 +121,9 @@ async function main() {
   check("美化配色不是单一灰（嘴/腿/脚/身各不相同）", pal.duck.length >= 4, pal.duck.join(", "));
   check("能一键切回场景包原始材质", pal.raw.length === 1, pal.raw.join(", "));
 
-  const chosen = sceneTasks[0];
+  // 挑一个**有目标物体**的精选任务：新加的简单任务里有姿态类的（本来就没有目标），
+  // 那些的 targetSource 是 'inferred-no-object'，不该拿来验"来自成功判据"。
+  const chosen = "walk_to_ball";      // 此刻是工作台场景；它是有目标物体的精选任务
   await page.selectOption("#task-select", chosen);
   const info = await page.textContent("#task-info");
   const agentTask = await page.evaluate(() => window.__sim.agent.task);
@@ -296,6 +303,48 @@ async function main() {
         reuse.afterStop.pending === false, JSON.stringify(reuse.afterStop));
   check("闸门里卡着上一轮结果时，换指令再点开始照样能推理",
         reuse.afterRestart.decisions > reuse.before, JSON.stringify(reuse.afterRestart));
+
+  // ---------------------------------------------------------------- 动作序列
+  // 用户报的另一种情况：指令是「前进1米，再翻滚一次，最后跳舞」这种**没有目标物体**的
+  // 编排。以前会被当成"去找 ball"，鸭子只转圈找球，翻滚跳舞永远轮不上。
+  console.log("\n== 动作序列：「前进1米，再翻滚一次，最后跳舞」==");
+  const seqRun = await page.evaluate(async () => {
+    const s = window.__sim, a = s.agent;
+    s.pause(); s.setDriver(false);
+    document.getElementById("stop").click();
+    document.getElementById("task-select").value = "__free__";
+    const inp = document.getElementById("task-text");
+    inp.value = "前进1米，再翻滚一次，最后跳舞";
+    inp.dispatchEvent(new Event("change"));
+    const parsed = { target: a.task.target, intent: a.task.intent, seq: a.task.sequence,
+                     steps: a.sequencer.steps.map((x) => x.label) };
+    const start = { ...s.duck.pose };
+    document.getElementById("run").click();
+    const t0 = performance.now();
+    let last = null;
+    while (performance.now() - t0 < 45000) {
+      await new Promise((r) => requestAnimationFrame(r));
+      last = { phase: a.phase, progress: a.sequenceProgress, tokens: a.history.slice(0, 6) };
+      if (a.phase === "finished") break;
+    }
+    document.getElementById("stop").click();
+    const end = { ...s.duck.pose };
+    const out = { parsed, last, moved: Math.hypot(end.x - start.x, end.y - start.y) };
+    s.reset();
+    return out;
+  });
+  check("纯动作指令被识别成序列，不再瞎猜目标",
+        seqRun.parsed.intent === "sequence" && seqRun.parsed.target === "",
+        JSON.stringify(seqRun.parsed));
+  check("拆成 前进 / 翻滚 / 跳舞 三步",
+        JSON.stringify(seqRun.parsed.steps) === JSON.stringify(["前进 1 m", "翻滚", "跳舞"]),
+        JSON.stringify(seqRun.parsed.steps));
+  check("序列能跑完（不被当成找球任务卡住）", seqRun.last?.phase === "finished",
+        `${seqRun.last?.phase}｜${seqRun.last?.progress}`);
+  check("真的走了一米，而不是原地做动作", seqRun.moved > 0.9, `${seqRun.moved.toFixed(2)} m`);
+  check("翻滚和跳舞都执行了",
+        (seqRun.last?.tokens || []).includes("ROLL") && (seqRun.last?.tokens || []).includes("DANCE"),
+        (seqRun.last?.tokens || []).join(","));
 
   // ---------------------------------------------------------------- 视角
   console.log("\n== 视角与三视角拼图 ==");

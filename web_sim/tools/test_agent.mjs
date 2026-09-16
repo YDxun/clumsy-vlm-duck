@@ -19,6 +19,7 @@ import { applyRules, reflexToken, DEFAULT_RULES } from "../src/rules.js";
 import { resolveEndpoint, splitDataUrl } from "../src/llm.js";
 import { DuckAgent } from "../src/agent.js";
 import { DuckStateSensor } from "../src/state.js";
+import { parseSequence, parseNumber, describeSequence } from "../src/sequence.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENE_DIR = path.resolve(HERE, "../assets/duck_workspace_v1");
@@ -276,6 +277,34 @@ console.log("\n== 7. agent：任务推断与进度 verbalization ==");
   ok("换指令后再点开始能重新发起决策", agent.phase === "thinking" && resumed.phase === "thinking",
      `${agent.phase} / ${resumed.phase}`);
   agent.abortPending();
+}
+
+console.log("\n== 9. 动作序列解析（「前进1米，再翻滚一次，最后跳舞」）==");
+{
+  eq("中文数字：二十五", parseNumber("二十五"), 25);
+  eq("中文数字：十二", parseNumber("十二"), 12);
+  eq("中文数字：半", parseNumber("半"), 0.5);
+  eq("阿拉伯数字：1.5", parseNumber("1.5"), 1.5);
+
+  const seq = parseSequence("前进1米，再翻滚一次，最后跳舞");
+  eq("用户原句拆成 3 步", seq.map((s) => s.kind), ["move", "skill", "skill"]);
+  eq("前进的米数被读出来", seq[0].meters, 1);
+  eq("翻滚在前、跳舞在后", [seq[1].token, seq[2].token], ["ROLL", "DANCE"]);
+  eq("能读成一句话", describeSequence(seq), "前进 1 m → 翻滚 → 跳舞");
+
+  eq("左转 + 前进", parseSequence("原地左转90度，然后前进0.5米").map((s) => [s.kind, s.deg ?? s.meters]),
+     [["turn", 90], ["move", 0.5]]);
+  eq("右转是负角度", parseSequence("右转45度")[0].deg, -45);
+  eq("没说角度默认 90 度", parseSequence("左转")[0].deg, 90);
+  eq("后退半米", parseSequence("后退半米")[0].meters, -0.5);
+  eq("翻滚三次展开成三步", parseSequence("翻滚三次，然后跳舞").map((s) => s.token),
+     ["ROLL", "ROLL", "ROLL", "DANCE"]);
+
+  // 关键：带目标的导航指令不能被误判成动作序列（否则会退化成"原地做动作"）
+  eq("「去红方块旁边停下」不是序列", parseSequence("去红方块旁边停下"), []);
+  eq("「把球踢进绿色区域」不是序列", parseSequence("把球踢进绿色区域"), []);
+  eq("「找到绿色区域，走过去」不是序列", parseSequence("找到绿色区域，走过去"), []);
+  eq("看不懂的句子不猜", parseSequence("随便说点什么"), []);
 }
 
 console.log(`\n结果: ${failed ? "FAIL" : "PASS"} —— ${passed}/${passed + failed} 项通过`);

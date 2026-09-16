@@ -1,6 +1,127 @@
 tasks:
+# ============================ 简单档 ============================
+# 前两条不依赖视觉（判据是位姿），第三条就在出生点同一个房间里，
+# 不需要穿门 / 跨房间 —— 用来验证"看见 → 走过去 → 判成功"这条最小链路。
+- id: walk_forward_0_6
+  instruction_zh: 向前走 0.6 米然后停住
+  instruction_en: Walk forward 0.6 m and stop.
+  difficulty: easy
+  max_duration_s: 20
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0.0
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - -1.2
+      - 0.0
+      radius_m: 0.18
+      yaw_deg: 0
+      yaw_tolerance_deg: 35
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -3.0
+      - -2.5
+      max_xy:
+      - 3.0
+      - 2.5
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: turn_left_90
+  instruction_zh: 原地左转约 90 度
+  instruction_en: Turn left about 90 degrees in place.
+  difficulty: easy
+  max_duration_s: 20
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0.0
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - -1.8
+      - 0.0
+      radius_m: 0.3
+      yaw_deg: 90
+      yaw_tolerance_deg: 25
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -3.0
+      - -2.5
+      max_xy:
+      - 3.0
+      - 2.5
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: enter_green_zone
+  instruction_zh: 走进绿色区域并停住（同一个房间里）
+  instruction_en: Enter the green zone in this room and stop.
+  difficulty: medium
+  max_duration_s: 35
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - 0.0
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: body_in_zone
+      body: trunk_base
+      zone: zone_green
+      radius_m: 0.35
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -3.0
+      - -2.5
+      max_xy:
+      - 3.0
+      - 2.5
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+
 - id: search_ball_across_rooms
   instruction_zh: 穿过门洞，在另一个房间找到球并靠近
+  difficulty: hard
   instruction_en: Pass through the doorway, find the ball in the other room, and approach
     it.
   max_duration_s: 90
@@ -33,6 +154,7 @@ tasks:
       seconds: 5.0
 - id: go_to_beacon
   instruction_zh: 根据语义目标前往黄色信标
+  difficulty: hard
   instruction_en: Navigate to the yellow beacon.
   max_duration_s: 45
   success_hold_s: 0.75
@@ -64,6 +186,7 @@ tasks:
       seconds: 5.0
 - id: retrieve_ball
   instruction_zh: 找到球并用踢或推把它带到绿色区域
+  difficulty: hard
   instruction_en: Find the ball and kick/push it into the green zone.
   max_duration_s: 75
   success_hold_s: 0.75

@@ -1,7 +1,112 @@
 tasks:
+# ============================ 简单档 ============================
+# 这三条**不依赖视觉**：判据是位姿/轨迹，鸭子靠步态就能完成，用来先把闭环跑通。
+- id: walk_forward_0_5
+  instruction_zh: 向前走 0.5 米然后停住
+  instruction_en: Walk forward 0.5 m and stop.
+  difficulty: easy
+  max_duration_s: 20
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - 0.5
+      - 0.0
+      radius_m: 0.18
+      yaw_deg: 0
+      yaw_tolerance_deg: 35
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: turn_left_90
+  instruction_zh: 原地左转约 90 度
+  instruction_en: Turn left about 90 degrees in place.
+  difficulty: easy
+  max_duration_s: 20
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - 0.0
+      - 0.0
+      radius_m: 0.3
+      yaw_deg: 90
+      yaw_tolerance_deg: 25
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+- id: enter_blue_zone
+  instruction_zh: 走进蓝色区域并停住
+  instruction_en: Enter the blue zone and stop inside it.
+  difficulty: medium
+  max_duration_s: 30
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - 0
+    - 0
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: body_in_zone
+      body: trunk_base
+      zone: zone_blue
+      radius_m: 0.3
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds
+      radius_m: 2.2
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 5.0
+
 - id: walk_to_ball
   instruction_zh: 走到橙色球0.4米内并停住
   instruction_en: Walk to within 40 cm of the orange ball and stop.
+  difficulty: easy
   max_duration_s: 30
   success_hold_s: 0.5
   restartable: true
@@ -32,6 +137,7 @@ tasks:
 - id: kick_ball_to_zone
   instruction_zh: 找到橙色球并把它踢进绿色区域
   instruction_en: Find the orange ball and kick it into the green zone.
+  difficulty: hard
   max_duration_s: 45
   success_hold_s: 0.5
   restartable: true
@@ -62,6 +168,7 @@ tasks:
 - id: push_red_cube
   instruction_zh: 把红色方块推到蓝色区域
   instruction_en: Push the red cube into the blue zone.
+  difficulty: medium
   max_duration_s: 45
   success_hold_s: 0.5
   restartable: true
@@ -89,6 +196,7 @@ tasks:
 - id: choose_red_not_blue
   instruction_zh: 在红蓝两个方块中选择红色方块并靠近
   instruction_en: Choose the red cube, not the blue cube, and approach it.
+  difficulty: medium
   max_duration_s: 30
   success_hold_s: 0.5
   restartable: true
@@ -120,6 +228,7 @@ tasks:
 - id: walk_turn_stop
   instruction_zh: 向前走约0.8米，右转约90度，然后停止
   instruction_en: Walk forward about 0.8 m, turn right about 90 degrees, then stop.
+  difficulty: easy
   max_duration_s: 25
   success_hold_s: 0.5
   restartable: true
@@ -154,6 +263,7 @@ tasks:
 - id: avoid_obstacle_reach_beacon
   instruction_zh: 绕过两个障碍物到达黄色信标
   instruction_en: Avoid both obstacles and reach the beacon.
+  difficulty: hard
   max_duration_s: 40
   success_hold_s: 0.5
   restartable: true

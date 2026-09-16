@@ -1,6 +1,127 @@
 tasks:
+# ============================ 简单档 ============================
+# 出生点 (-1.8,-0.8) 朝 +x：正前方 0.9 m 处才是 5 cm 台阶，所以"往前走 0.5 m"是干净的；
+# 红色区域在左侧 0.8 m（同一个平面，不用上台/下坡），是这里最容易看见的目标。
+- id: walk_forward_0_5
+  instruction_zh: 向前走 0.5 米然后停住（台阶前）
+  instruction_en: Walk forward 0.5 m and stop (before the step).
+  difficulty: easy
+  max_duration_s: 20
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - -0.8
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - -1.3
+      - -0.8
+      radius_m: 0.18
+      yaw_deg: 0
+      yaw_tolerance_deg: 35
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+- id: turn_right_90
+  instruction_zh: 原地右转约 90 度
+  instruction_en: Turn right about 90 degrees in place.
+  difficulty: easy
+  max_duration_s: 20
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - -0.8
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: robot_pose_region
+      body: trunk_base
+      center_xy:
+      - -1.8
+      - -0.8
+      radius_m: 0.3
+      yaw_deg: -90
+      yaw_tolerance_deg: 25
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+- id: enter_red_zone
+  instruction_zh: 走进红色区域并停住
+  instruction_en: Enter the red zone and stop inside it.
+  difficulty: medium
+  max_duration_s: 30
+  success_hold_s: 0.5
+  restartable: true
+  robot_spawn:
+    xy:
+    - -1.8
+    - -0.8
+    yaw_deg: 0
+    random_xy_radius_m: 0.05
+    random_yaw_deg: 5
+  setup: {}
+  success:
+    all:
+    - type: body_in_zone
+      body: trunk_base
+      zone: zone_red
+      radius_m: 0.25
+    - type: speed_xy_le
+      body: trunk_base
+      speed_mps: 0.08
+  failure:
+    any:
+    - type: outside_bounds_aabb
+      min_xy:
+      - -2.4
+      - -1.9
+      max_xy:
+      - 2.4
+      - 1.9
+    - type: fallen_for_s
+      body: trunk_base
+      seconds: 7.0
+
 - id: rough_ground_walk
   instruction_zh: 通过低台阶和12度坡道到达黄色信标
+  difficulty: hard
   instruction_en: Traverse the low steps and 12-degree ramp to reach the beacon.
   max_duration_s: 70
   success_hold_s: 0.75
@@ -35,6 +156,7 @@ tasks:
       seconds: 7.0
 - id: narrow_corridor
   instruction_zh: 通过0.5米宽通道并到达蓝色区域
+  difficulty: hard
   instruction_en: Pass through the 0.5 m corridor and reach the blue zone.
   max_duration_s: 45
   success_hold_s: 0.75
@@ -66,6 +188,7 @@ tasks:
       seconds: 7.0
 - id: recover_after_fall
   instruction_zh: 跌倒后恢复站立并稳定2秒
+  difficulty: medium
   instruction_en: Recover to upright standing after a fall and remain stable for 2
     s.
   max_duration_s: 30
@@ -107,6 +230,7 @@ tasks:
       seconds: 7.0
 - id: push_ball_around_obstacle
   instruction_zh: 把球绕过柱子推到绿色区域
+  difficulty: hard
   instruction_en: Push/kick the ball around the pillars into the green zone.
   max_duration_s: 75
   success_hold_s: 0.75
@@ -138,6 +262,7 @@ tasks:
       seconds: 7.0
 - id: multi_target_navigation
   instruction_zh: 按顺序访问红色、蓝色、绿色区域
+  difficulty: hard
   instruction_en: Visit the red, blue, and green zones in order.
   max_duration_s: 90
   success_hold_s: 0.75

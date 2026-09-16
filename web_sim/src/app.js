@@ -297,6 +297,13 @@ async function loop() {
     $("s-ball").textContent = `${duck.ballPose.x.toFixed(2)}, ${duck.ballPose.y.toFixed(2)}`;
     $("s-decisions").textContent = String(agent ? agent.records.length : 0);
     if (agent && agent.minRange != null) $("s-minrange").textContent = `${agent.minRange.toFixed(2)} m`;
+    // 场景判据的实时进度（精选任务才有）：进了区域/距离够不够，一眼能看到
+    if (agent) {
+      $("s-goal").textContent = agent.goal?.enabled
+        ? (agent.goalProgress || "判定中…")
+        : agent.sequencer?.active ? (agent.sequenceProgress || "动作序列执行中…")
+        : "自由文本任务：由模型自己喊完成";
+    }
     if (duck.lastTwist) {
       $("s-twist").textContent = duck.lastTwist.map((v) => v.toFixed(2)).join(", ");
     }
@@ -451,7 +458,10 @@ function refreshTaskSelect() {
   for (const t of tasks) {
     const opt = document.createElement("option");
     opt.value = t.id;
-    opt.textContent = `${t.id} — ${t.instruction_zh || t.instruction_en || ""}`;
+    // 难度直接写在选项里：用户一眼能看出「先从这个开始」，不用点进去试
+    const star = { easy: "★ 简单", medium: "★★ 中等", hard: "★★★ 进阶" }[t.difficulty] || "";
+    opt.textContent = `${star ? star + " · " : ""}${t.instruction_zh || t.instruction_en || t.id}`;
+    opt.title = `${t.id}｜${t.instruction_en || ""}`;
     sel.appendChild(opt);
   }
   const free = document.createElement("option");
@@ -468,6 +478,15 @@ function refreshTaskSelect() {
     applyTask();
   };
   $("task-text").onchange = () => { sel.value = "__free__"; applyTask(); };
+  // 一键示例：点一下就把指令填进输入框（新手不用自己想措辞）
+  for (const b of document.querySelectorAll("#seq-examples [data-example]")) {
+    b.onclick = () => {
+      sel.value = "__free__";
+      $("task-text").value = b.dataset.example;
+      applyTask();
+      log(`[示例指令] ${b.dataset.example}`);
+    };
+  }
   $("manip-mode").onchange = () => {
     if (!agent) return;
     agent.manipulationMode = $("manip-mode").value;
@@ -493,11 +512,16 @@ function applyTask() {
     inferred: "从措辞推断", "inferred-no-object": "无目标物体（姿态/恢复类）",
   }[task.targetSource] || task.targetSource;
   const zone = agent.stationZone;
-  $("task-info").textContent =
-    `目标 = ${task.target}（${srcLabel}）· 意图 = ${task.intent}` +
-    (zone ? ` · 区域 = ${zone.name}@${(zone.successRadius ?? zone.radius).toFixed(2)}m` : "");
-  $("s-target").textContent = task.target;
+  // 动作序列（"前进1米，再翻滚一次，最后跳舞"）没有目标物体，别显示成一个假目标
+  $("task-info").textContent = task.sequence
+    ? `动作序列：${task.sequence}　（每一步按"走了几米 / 转了几度"实测验收，不需要视觉）`
+    : `目标 = ${task.target}（${srcLabel}）· 意图 = ${task.intent}` +
+      (zone ? ` · 区域 = ${zone.name}@${(zone.successRadius ?? zone.radius).toFixed(2)}m` : "");
+  $("s-target").textContent = task.sequence ? "（动作序列）" : task.target;
   $("s-minrange").textContent = "—";
+  $("s-goal").textContent = agent.goal?.enabled ? "还没开始（点“开始”后实时判定）"
+    : agent.sequencer?.active ? (agent.sequenceProgress || "动作序列待执行")
+    : "自由文本任务：由模型自己喊完成";
   $("decisions").innerHTML = '<div class="hint">还没有决策。点“开始”。</div>';
   log(`[任务] ${task.taskId || "(自由文本)"} ${task.text} → target=${task.target} intent=${task.intent}`);
   return task;
@@ -648,6 +672,8 @@ function setupDecisionUi() {
   $("reset").onclick = () => {
     driver.agent = false;
     agent.abortPending();
+    agent.goal?.reset();
+    agent.goalProgress = "";
     duck.reset();
     agent.interpreter.resetHead();
     agent.records.length = 0;

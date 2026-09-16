@@ -40,9 +40,15 @@ key 只存在你本机浏览器的 localStorage，只发给你选的那家厂商
 | | |
 | --- | --- |
 | 场景 | 3 个（工作台 / 家庭跨房间 / 障碍地形），页面里热切换，不重启 |
-| 任务 | 14 条（场景包自带），也可以直接写一句自然语言，比如「去红方块旁边停下」 |
+| 任务 | 23 条（场景包自带，下拉里标了 ★ 难度，简单的排在前面），也可以直接写一句自然语言 |
+| 完成判定 | 精选任务的**成没成由场景包的判据说了算**（走进区域、到点停稳都实时判定），不靠模型自己喊完成 |
+| 动作编排 | 「前进1米，再翻滚一次，最后跳舞」这类**没有目标物体**的指令逐步实测验收（走了几米、转了几度都量出来），不需要视觉、也不用调模型 |
 | 动作词表 | 8 个基础 token + 通过本地验证的技能（翻滚 / 跳舞）；推、踢由规则闭环执行 |
 | 交互 | 鼠标缩放/旋转/平移，一键三视角拼图，决策日志里能看到**模型当时看到的那张图** |
+
+> **鸭子主要靠眼睛**：目标不在它视野里，它就得先转圈找。「穿越台阶 / 跨房间找球」
+> 这类任务都要求目标（或路上的地标）能被它看见 —— 想跑通先挑 ★ 简单的，
+> 或者直接用动作编排（那条路完全不依赖视觉）。
 
 **已实测通过的场景任务**：`push_red_cube`（方块推进蓝区）、
 `kick_ball_to_zone`（球踢进绿区），以及真模型 zero-shot 的
@@ -88,9 +94,9 @@ node tools\serve.mjs            # http://127.0.0.1:8787/
 | 网格 pin | `node tools/check_mesh_pin.mjs` | PASS（38/38 与上游固定 commit 字节一致） |
 | 物理一致性 | `node tools/verify_wasm.mjs <场景>` | PASS ×3（与 Python MuJoCo 逐 body + 全 geom 哈希一致） |
 | 渲染 | `node tools/verify_render.mjs` | 14/14（像素级：画面里的鸭子就是物理里的鸭子） |
-| 决策层单测 | `node tools/test_agent.mjs` | 107/107 |
+| 决策层单测 | `node tools/test_agent.mjs` | 124/124（含动作序列解析） |
 | 闭环 | `node tools/verify_agent.mjs` | 37/37（含真 HTTP + 跨域） |
-| 页面 | `node tools/verify_page.mjs` | 71/71（点按钮、填 key、测连通、换指令复跑、下拼图） |
+| 页面 | `node tools/verify_page.mjs` | 76/76（点按钮、填 key、测连通、换指令复跑、动作序列、下拼图） |
 | 真模型 | `node tools/verify_real_vlm.mjs` | 7~8/8（真 Qwen3-VL，自己走到球边收工；最后一条看这趟走没走到 0.45 m） |
 | 发布产物 | `node tools/smoke_site.mjs _site` | 8/8（无 node_modules，全 CDN） |
 | 线上 HTML | `python tools/check_space_encoding.py` | PASS（线上 0 个坏字符） |

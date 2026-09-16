@@ -46,9 +46,16 @@ picked — this project has no backend, so there is nowhere for it to leak to.
 | | |
 | --- | --- |
 | Scenes | 3 (workshop / home with rooms / obstacle course), hot-swapped in the page, no restart |
-| Tasks | 14 shipped with the scene packs, or just type a sentence like "go stand next to the red cube" |
+| Tasks | 23 shipped with the scene packs (each tagged with a ★ difficulty, easy ones first), or just type a sentence |
+| Completion | For curated tasks the **scene pack's success predicate decides** (entered the zone, arrived and settled are checked live) — not the model saying it is done |
+| Choreography | Instructions with no target object — "walk forward 1 m, roll once, then dance" — are executed step by step and verified against the world (metres walked, degrees turned). No vision, no model calls |
 | Actions | 8 base tokens plus locally-verified skills (roll over, dance); pushing and kicking run as a rule loop |
 | Controls | Mouse zoom/orbit/pan, one-click three-view composite, and a decision log showing **the exact image the model was given** |
+
+> **The duck mostly works by sight.** If the target is not in its camera view it will
+> spin around looking for it, so tasks like "climb the steps" or "find the ball in the
+> other room" need the target (or a landmark on the way) visible. Start with the ★ easy
+> ones, or use a choreography instruction, which needs no vision at all.
 
 **Scene tasks that actually pass**: `push_red_cube` (cube into the blue zone),
 `kick_ball_to_zone` (ball into the green zone), and a real-model zero-shot
@@ -97,9 +104,9 @@ Every claim in this project comes with a command you can re-run, instead of "loo
 | Mesh pin | `node tools/check_mesh_pin.mjs` | PASS (38/38 byte-identical to the pinned upstream commit) |
 | Physics parity | `node tools/verify_wasm.mjs <scene>` | PASS ×3 (every body + a hash over all geom positions matches Python MuJoCo) |
 | Rendering | `node tools/verify_render.mjs` | 14/14 (pixel level: the duck on screen is the duck in the physics) |
-| Decision layer | `node tools/test_agent.mjs` | 107/107 |
+| Decision layer | `node tools/test_agent.mjs` | 124/124 (includes choreography parsing) |
 | Closed loop | `node tools/verify_agent.mjs` | 37/37 (includes real HTTP + CORS) |
-| Page | `node tools/verify_page.mjs` | 71/71 (clicks buttons, fills a key, tests the connection, re-runs with a new instruction, downloads the composite) |
+| Page | `node tools/verify_page.mjs` | 76/76 (clicks buttons, fills a key, tests the connection, re-runs with a new instruction, runs a choreography, downloads the composite) |
 | Real model | `node tools/verify_real_vlm.mjs` | 7–8/8 (real Qwen3-VL walks to the ball and stops on its own; the last check depends on making it within 0.45 m) |
 | Live HTML | `python tools/check_space_encoding.py` | PASS (0 mangled characters on the CDN) |
 | Published build | `node tools/smoke_site.mjs _site` | 8/8 (no node_modules, everything from CDN) |

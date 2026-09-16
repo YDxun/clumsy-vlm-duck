@@ -66,7 +66,11 @@ web_sim/scenes.json                   场景清单（页面唯一的场景来源
 1. 在场景包的 `tasks.yaml` 里写 `id` / `instruction_zh` / `instruction_en`
 2. **把目标写进 `success` 判据**（`distance_xy_le.target` 或 `body_in_zone.body/zone`）
 3. 只有姿态/恢复类任务可以没有目标物体
-4. 跑校验，绿了再提交：
+4. 加一个 `difficulty: easy | medium | hard` —— 下拉框会显示成 ★ / ★★ / ★★★，
+   简单的排在前面。**能用位姿判据的就别用视觉判据**：鸭子主要靠眼睛找目标，
+   "往前 0.5 米""原地左转 90 度"这类靠 `robot_pose_region` 的判据它一定有办法做到，
+   而"跨房间找球""绕过障碍"要求目标或地标先进入视野，那是另一个难度级的事
+5. 跑校验，绿了再提交：
 
 ```powershell
 node web_sim\tools\check_task_schema.mjs
@@ -74,6 +78,25 @@ node web_sim\tools\check_task_schema.mjs
 
 它直接调用运行时的推导函数（不抄第二份规则），并检查判据里引用的每个 body / zone
 在 `metadata.yaml` 里真实存在 —— 拼错就报。
+
+### 判据怎么判"完成"
+
+精选任务**由判据说了算**，不靠模型自己喊 DONE（`web_sim/src/goal.js` 把
+`validation_core.py` 的原子判据搬到了浏览器端，语义逐条对齐）：
+
+* 每个控制步都算一次判据，满足后再保持 `success_hold_s`（默认 0.5 s）才判成；
+* 判据里有 `speed_xy_le`（"要停住"）时，**位置到位后由 agent 主动刹住**再等计时 ——
+  不刹的话鸭子会自己走出区域，"进了区域"这一条反而永远满足不了（踩过）；
+* 规则层的 DONE 阈值取判据里的到达半径（`goal.arriveRangeM`），不再是写死的 0.35 m；
+* 模型/规则层喊 DONE 但判据没满足时**不认**，会在日志里写明"说完成但判据未满足"。
+
+### 没有目标物体的指令：动作序列
+
+「前进1米，再翻滚一次，最后跳舞」这种指令由 `web_sim/src/sequence.js` 接管：
+解析成步骤 → 逐步执行 → **每步用世界状态验收**（走了几米、转了几度、技能跑完没有）。
+它不走决策层，所以不花 API 钱，也不依赖视觉。判据不认识这句指令时不会误判成
+"去找 ball"（那正是以前"鸭子一直原地转圈"的原因）。
+
 
 ## 3. 加一个场景
 
@@ -203,3 +226,12 @@ F:\anaconda_ydx\python.exe tools\check_space_encoding.py           # 线上 HTML
     而首次打开（localStorage 为空）时 input 本来就是空的，于是 `model` 是空串，
     请求发出去被服务端回 400「you must provide a model parameter」。
     现在模型是 `<select>`，永远有值。**教训：凡是能空的关键字段，别用空 input 当默认。**
+13. **"进了区域却永远不算完成"**：判据常写成「位姿 + `speed_xy_le`（要停住）」，
+    而决策层还在继续下发速度指令 → 速度条件永远不成立 → 判据永远不满足 →
+    鸭子继续往前走，反而走出区域。对策是 `goal.js` 额外算一个 `positional`
+    （除速度外都满足），agent 看到它就主动刹住再等 `success_hold_s`。
+    **教训：把"到位"和"停稳"拆开判，别指望模型自己停下来。**
+14. **纯动作指令别硬猜目标**：「前进1米，再翻滚一次，最后跳舞」里没有任何物体，
+    以前 `scanText` 找不到实体就退化成默认目标 `ball`，于是鸭子满场转圈找球、
+    翻滚跳舞一次都没执行。现在 `sequence.js` 先识别成动作序列并接管
+    （`intent: "sequence"`、`target: ""`），有目标物体的导航指令才走决策层。

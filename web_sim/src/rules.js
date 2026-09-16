@@ -105,11 +105,14 @@ export function applyRules(ctx, rules = DEFAULT_RULES) {
  * 不做任何视觉理解，只用本体感知：看不见就转圈扫，看得见就对准了走。
  * UI 上的“规则模式”就是它；也用来在没有 API key 的环境里回归整条闭环。
  */
-export function reflexToken(state) {
+export function reflexToken(state, { stopRangeM = 0.35 } = {}) {
   if (state.fallen) return "STOP";
   if (!state.targetVisible || state.targetRangeM === null) return "TURN_L";
   const bearing = state.targetBearingRad;
   if (Math.abs(bearing) > 0.30) return bearing > 0 ? "TURN_L" : "TURN_R";
-  if (state.targetRangeM > 0.35) return "FWD";
+  // 到达半径由**场景判据**决定（agent 把任务里那条距离/半径传进来）：
+  // 以前这里写死 0.35 m，而「走进红色区域」的判据是 ≤0.25 m，于是在 0.32 m 处
+  // 规则层就喊了 DONE —— 用户看到的是"它说完成了，但任务判定没过"。
+  if (state.targetRangeM > stopRangeM) return "FWD";
   return "DONE";
 }

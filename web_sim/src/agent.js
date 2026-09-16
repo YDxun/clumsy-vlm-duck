@@ -23,6 +23,8 @@ import { askVlm, PROVIDERS } from "./llm.js";
 import { parseToken, TOKENS, availableTokens } from "./actions.js";
 import { resolveIntent, pickTarget } from "./intent.js";
 import { StationKicker, Pusher, planStation } from "./station.js";
+import { GoalCheck } from "./goal.js";
+import { parseSequence, describeSequence, SequenceRunner } from "./sequence.js";
 
 const DEG = 180 / Math.PI;
 
@@ -56,6 +58,9 @@ export class DuckAgent {
     // 踢球/推球站位：见到球就算一次站位，之后由规则闭环把最后 20 cm 走完
     this.station = new StationKicker();
     this.pusher = new Pusher();
+    // 动作序列（「前进1米，再翻滚一次，最后跳舞」这类没有目标物体的编排）
+    this.sequencer = new SequenceRunner({ duck, interpreter: this.interpreter });
+    this.sequenceProgress = "";
     this.manipulationMode = "auto";   // auto | push | kick
     this.stationEnabled = true;
     this.stationZone = null;
@@ -79,6 +84,12 @@ export class DuckAgent {
   setTask({ text = "", taskId = "", target = null } = {}) {
     const curated = taskId && this.scene ? this.scene.task(taskId) : null;
     const taskText = text || curated?.instruction_zh || curated?.instruction_en || taskId || "(no task set)";
+    /**
+     * 纯动作序列（「前进1米，再翻滚一次，最后跳舞」）：这类指令**没有目标物体**，
+     * 以前会被硬猜成"去找 ball" —— 于是鸭子只会转圈找球，翻滚跳舞永远轮不上。
+     * 现在把它交给序列执行器，逐步按世界状态验收（走了几米 / 转了几度 / 技能跑完没）。
+     */
+    const seqSteps = curated ? [] : parseSequence(taskText);
     // 精选任务的"要操作什么、送到哪"**从它的成功判据里推导**（场景包声明的权威来源）。
     // 以前这里是读顶层 curated.target —— 那个字段在 tasks.yaml 的 schema 里根本不存在，
     // 所以 14 个任务全都在靠措辞推断，只是碰巧推对了。
@@ -87,7 +98,7 @@ export class DuckAgent {
     let targetSource = target ? "explicit" : "declared";
     let zoneName = derived?.zone || null;
     let zoneRadius = derived?.radius ?? null;
-    if (!resolvedTarget) {
+    if (!resolvedTarget && !seqSteps.length) {
       if (derived?.target) {
         resolvedTarget = derived.target;
       } else {
@@ -102,10 +113,11 @@ export class DuckAgent {
     this.task = {
       text: taskText,
       taskId: taskId || curated?.id || "",
-      target: resolvedTarget || "ball",
-      targetSource,
+      target: seqSteps.length ? "" : (resolvedTarget || "ball"),
+      targetSource: seqSteps.length ? "sequence" : targetSource,
       targetReason: derived?.source || null,
-      intent: resolveIntent(taskId, taskText),
+      intent: seqSteps.length ? "sequence" : resolveIntent(taskId, taskText),
+      sequence: seqSteps.length ? describeSequence(seqSteps) : null,
       // 只把「策略在、且本地实测有效」的技能发给模型（见 actions.availableTokens）
       allowed: availableTokens(this.policies || {}),
     };
@@ -124,6 +136,15 @@ export class DuckAgent {
     this.records = [];
     this._pending = null;
     this._idleS = 0;
+    /**
+     * 场景判据执行器：精选任务自带 success 判据，**由世界状态决定成没成**，
+     * 不再等模型喊 DONE，也不靠 max_steps 收场。自由文本任务没有判据，
+     * goal 为 null，行为与以前一致（靠模型 DONE）。
+     */
+    this.goal = curated ? new GoalCheck(curated, { duck: this.duck, scene: this.scene }) : null;
+    this.goalProgress = "";
+    this.sequencer.load(seqSteps);
+    this.sequenceProgress = this.sequencer.progress;
     // 站位/判成功用的区域：优先用成功判据里那个（半径以任务为准，比如踢球是 0.30 而不是 0.35）
     const zone = zoneName && this.scene ? this.scene.zoneByName(zoneName) : null;
     this.stationZone = zone ? { ...zone, successRadius: zoneRadius } : null;
@@ -356,6 +377,43 @@ export class DuckAgent {
       this._pending = null;
       return { cmd: [0, 0, 0], headDelta: this.interpreter.headOverride(), phase: this.phase };
     }
+    // 场景判据说了算：世界状态满足 + 保持够 success_hold_s → 当场收工。
+    // 不等模型喊 DONE（它可能正低头看着地板，也可能已经摔了但球其实进区了）。
+    if (this.goal?.enabled) {
+      const g = this.goal.step(dt);
+      this.goalProgress = g.progress;
+      if (g.done) {
+        this.phase = "finished";
+        this.lastNote = `任务完成（场景判据）：${this.task.taskId || this.task.text}`;
+        this.interpreter.cancel();
+        return { cmd: [0, 0, 0], headDelta: this.interpreter.headOverride(), phase: "finished" };
+      }
+      // 位置已经到位、只差"停稳"（判据里有速度条件）→ 主动刹住。
+      // 不刹的话鸭子会自己走出区域，"进了区域"这一条反而永远满足不了。
+      if (g.positional) {
+        this.interpreter.cancel();
+        this.lastNote = "已到位，停稳中…";
+        return { cmd: [0, 0, 0], headDelta: this.interpreter.headOverride(), phase: this.phase };
+      }
+    }
+    /**
+     * 动作序列：不需要视觉、也不需要模型逐步推理 —— 第几步做没做完由**世界状态**验收
+     * （走了几米、转了几度、技能跑完没有）。所以这一段完全不走决策层（也就不用花钱调模型）。
+     */
+    if (this.sequencer.active) {
+      const s = this.sequencer.tick(dt);
+      this.sequenceProgress = s.note;
+      this.lastNote = s.note;
+      if (s.advanced) {                    // 让"最近动作"里能看到序列真的做到哪了
+        this.history.unshift(s.advanced);
+        if (this.history.length > 20) this.history.pop();
+      }
+      if (s.done) {
+        this.phase = "finished";
+        return { cmd: s.command, headDelta: s.headDelta, phase: "finished" };
+      }
+      return { cmd: s.command, headDelta: s.headDelta, phase: "sequence" };
+    }
     if (this.phase === "thinking") {
       // 等模型的时候原地站稳，但头部姿态继续锁着（LOOK_DOWN 不会被走路策略顶回去）
       if (this._pending && this._pending.settled) {
@@ -372,6 +430,15 @@ export class DuckAgent {
         const res = this.interpreter.start(rec.token);
         this._pushTrail();
         if (res.done && rec.token === "DONE") {
+          // 场景判据优先：世界状态还没达成就不认这个 DONE（模型/规则层可能提前喊），
+          // 当作"再走一步"，继续决策 —— 免得出现"界面说完成、任务判据却没过"。
+          if (this.goal?.enabled && !this.goal.lastOk) {
+            this.phase = "idle";
+            this._idleS = 0;
+            this.lastNote = `说完成但判据未满足：${this.goalProgress}`;
+            if (this.onRecord) this.onRecord(rec);
+            return { cmd: [0, 0, 0], headDelta: this.interpreter.headOverride(), phase: "idle" };
+          }
           this.phase = "finished";
           this.history.unshift("DONE");
           if (this.onRecord) this.onRecord(rec);
@@ -503,11 +570,11 @@ export class DuckAgent {
       rec.provider = this.config.provider;
       rec.model = this.config.model;
       if (!proposed) {
-        proposed = reflexToken(obs.state);
+        proposed = reflexToken(obs.state, { stopRangeM: this.goal?.arriveRangeM ?? 0.35 });
         rec.note = "parse-failed";
       }
     } else {
-      proposed = reflexToken(obs.state);
+      proposed = reflexToken(obs.state, { stopRangeM: this.goal?.arriveRangeM ?? 0.35 });
       rec.source = "rule";
     }
 
@@ -538,6 +605,9 @@ export class DuckAgent {
       lastNote: this.lastNote, lastError: this.lastError,
       interpreter: this.interpreter.status(),
       lastRecord: this.records[0] || null,
+      goal: this.goal?.enabled ? { progress: this.goalProgress, holdS: this.goal.hold } : null,
+      sequence: this.sequencer.active ? { steps: this.sequencer.steps.length,
+                                          progress: this.sequenceProgress } : null,
     };
   }
 }

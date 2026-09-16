@@ -276,6 +276,30 @@ export class DuckSim {
     return { x: p[b * 3], y: p[b * 3 + 1], z: p[b * 3 + 2] };
   }
 
+  /** body 名 → 内部 id（找不到返回 -1）。判据里写的都是名字，得先翻译一下。 */
+  bodyId(name) {
+    if (this._bodyIdCache?.has(name)) return this._bodyIdCache.get(name);
+    const id = this.mujoco.mj_name2id(this.model, mjObj(this.mujoco, "mjOBJ_BODY"), name);
+    (this._bodyIdCache || (this._bodyIdCache = new Map())).set(name, id);
+    return id;
+  }
+
+  /** 任意 body 的世界坐标（场景判据要用：目标物体、区域中心都按 body 名引用）。 */
+  bodyPose(name) {
+    const b = this.bodyId(name);
+    if (b < 0) return null;
+    const p = this.data.xpos;
+    return { x: p[b * 3], y: p[b * 3 + 1], z: p[b * 3 + 2] };
+  }
+
+  /** body 的水平速度大小（m/s）：与 Python 判据 `speed_xy_le` 用同一份 cvel。 */
+  bodySpeedXY(name) {
+    const b = this.bodyId(name);
+    if (b < 0) return null;
+    const c = this.data.cvel;
+    return Math.hypot(c[b * 6 + 3], c[b * 6 + 4]);
+  }
+
   /** 头体位姿（躯干坐标系下的真实姿态，不是相机）。 */
   headPose() {
     const h = this.bodies.head, p = this.data.xpos;
