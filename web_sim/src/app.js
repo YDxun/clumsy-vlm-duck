@@ -23,6 +23,21 @@ const POLICY = "alpha_walking";
 const ASSET_BASE = "./assets";
 
 const $ = (id) => document.getElementById(id);
+
+/**
+ * onnxruntime-web 的 wasm 文件在哪：
+ *   开发时用本地 node_modules；发布产物里读 build_site.mjs 生成的 site-config.json（指向 CDN）。
+ */
+async function resolveOrtWasmPaths() {
+  try {
+    const res = await fetch("./site-config.json");
+    if (res.ok) {
+      const cfg = await res.json();
+      if (cfg.ortWasmPaths) return cfg.ortWasmPaths;
+    }
+  } catch { /* 没有配置文件就退回本地路径 */ }
+  return new URL("../node_modules/onnxruntime-web/dist/", import.meta.url).href;
+}
 const boot = $("boot"), bootMsg = $("boot-msg"), logEl = $("log");
 const lines = [];
 function log(msg) {
@@ -118,7 +133,8 @@ async function loadPolicies() {
   } catch { /* 没有清单就只加载默认走路策略 */ }
   const results = [];
   for (const p of list) {
-    const url = `${ASSET_BASE}/policies/${p.file}`;
+    // 用清单解析出来的资产基址：发布模式可能指向外部托管（不重新分发资产的合规做法）
+    const url = `${sceneBase}/policies/${p.file}`;
     try {
       const session = policySessions.get(url) || await DuckSim.createPolicySession(url);
       policySessions.set(url, session);
@@ -174,7 +190,7 @@ async function activateScene(id) {
     }
     const tModel = performance.now();
 
-    const policyUrl = `${ASSET_BASE}/policies/${POLICY}.onnx`;
+    const policyUrl = `${sceneBase}/policies/${POLICY}.onnx`;
     if (!policySessions.has(policyUrl)) {
       policySessions.set(policyUrl, await DuckSim.createPolicySession(policyUrl));
     }
@@ -280,12 +296,14 @@ async function boot_() {
     configureOrt({
       // ort.min.mjs 是“外部 wasm”构建，运行时才去取 ort-wasm-*.wasm，
       // 必须把 dist 目录绝对 URL 告诉它（末尾斜杠不能省）。
-      wasmPaths: new URL("../node_modules/onnxruntime-web/dist/", import.meta.url).href,
+      // 发布产物里没有 node_modules，改由 build_site.mjs 写的 site-config.json 指向 CDN。
+      wasmPaths: await resolveOrtWasmPaths(),
       numThreads: 1,
     });
     const t0 = performance.now();
-    await loadPolicies();
     manifest = await loadManifest("./scenes.json");
+    // 策略要在读到清单之后再加载：清单里的 assetBase 可能指向外部托管（不重新分发资产的发布模式）
+    await loadPolicies();
     log(`[清单] scenes.json：${manifest.scenes.length} 个场景 —— ${manifest.scenes.map((s) => s.id).join(", ")}`);
     const want = new URLSearchParams(location.search).get("scene");
     await activateScene(want || manifest.scenes[0].id);

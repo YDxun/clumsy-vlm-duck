@@ -67,8 +67,8 @@ export function createHandler(root = ROOT) {
 }
 
 /** 起一个服务器，返回 { url, close }。port=0 时由系统分配（验证脚本用，避免端口冲突）。 */
-export function startServer({ port = 8787, host = HOST } = {}) {
-  const server = createServer(createHandler());
+export function startServer({ port = 8787, host = HOST, root = ROOT } = {}) {
+  const server = createServer(createHandler(root));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {
@@ -76,6 +76,7 @@ export function startServer({ port = 8787, host = HOST } = {}) {
       resolve({
         server,
         url: `http://${host}:${p}/`,
+        root,
         close: () => new Promise((r) => server.close(r)),
       });
     });
@@ -84,7 +85,9 @@ export function startServer({ port = 8787, host = HOST } = {}) {
 
 // 直接 `node tools/serve.mjs [port]` 时才自启
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { url } = await startServer({ port: Number(process.argv[2] || 8787) });
-  console.log(`[serve] web_sim/ -> ${url}`);
-  console.log(`[serve] 根目录 ${ROOT}`);
+  // 用法：node tools/serve.mjs [port] [相对根目录，例如 _site]
+  const root = process.argv[3] ? path.resolve(ROOT, process.argv[3]) : ROOT;
+  const { url } = await startServer({ port: Number(process.argv[2] || 8787), root });
+  console.log(`[serve] -> ${url}`);
+  console.log(`[serve] 根目录 ${root}`);
 }
